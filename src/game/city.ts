@@ -12,8 +12,11 @@ export const ZONE_NONE = 0, ZONE_R = 1, ZONE_C = 2, ZONE_I = 3;
 export const ZONE_COUNT = 4;
 
 // What the mayor placed on a tile. Zoned buildings are not structures: they are `level > 0` on a zoned tile.
-export const NONE = 0, ROAD = 1, WIND = 2, PLANT = 3, TOWER = 4, PARK = 5, SCHOOL = 6, CLINIC = 7, POLICE = 8, FIRE = 9;
-export const STRUCTURE_COUNT = 10;
+export const NONE = 0, ROAD = 1, WIND = 2, PLANT = 3, TOWER = 4, PARK = 5, SCHOOL = 6, CLINIC = 7, POLICE = 8, FIRE = 9, AVENUE = 10;
+export const STRUCTURE_COUNT = 11;
+
+/** Roads and avenues: what cars drive on and lots are reached from. */
+export function isRoad(structure: number) { return structure === ROAD || structure === AVENUE; }
 
 // Derived each day (see derive.ts).
 export const FLAG_ACCESS = 1, FLAG_POWER = 2, FLAG_WATER = 4;
@@ -40,6 +43,8 @@ export type Stats = {
   zonedLots: number;
   /** Finished buildings currently without each need. */
   withoutRoad: number; withoutPower: number; withoutWater: number;
+  /** Road tiles carrying more trips than they have room for. */
+  congested: number;
 };
 
 export type City = {
@@ -77,6 +82,8 @@ export type City = {
   readonly frontDir: Uint8Array;
   readonly landValue: Float32Array;
   readonly pollution: Float32Array;
+  /** Trips a day over each road tile, on the way from homes to the nearest jobs. */
+  readonly traffic: Float32Array;
   readonly stats: Stats;
 };
 
@@ -88,10 +95,10 @@ export function createCity(seed: number, size = MAP_SIZE): City {
     level: new Uint8Array(tiles), progress: new Uint16Array(tiles), variant: new Uint8Array(tiles),
     facing: new Uint8Array(tiles).fill(NO_FACING), distress: new Uint8Array(tiles),
     flags: new Uint8Array(tiles), roadOf: new Int32Array(tiles).fill(-1), frontDir: new Uint8Array(tiles).fill(NO_FACING),
-    landValue: new Float32Array(tiles), pollution: new Float32Array(tiles),
+    landValue: new Float32Array(tiles), pollution: new Float32Array(tiles), traffic: new Float32Array(tiles),
     stats: {
       population: 0, commercialJobs: 0, industrialJobs: 0, powerSupply: 0, powerUse: 0, waterSupply: 0, waterUse: 0,
-      income: 0, expenses: 0, demand: [0, 0, 0, 0], zonedLots: 0, withoutRoad: 0, withoutPower: 0, withoutWater: 0,
+      income: 0, expenses: 0, demand: [0, 0, 0, 0], zonedLots: 0, withoutRoad: 0, withoutPower: 0, withoutWater: 0, congested: 0,
     },
   };
 }
@@ -101,7 +108,8 @@ export function inMap(city: City, x: number, z: number) { return x >= 0 && z >= 
 
 /** True when the tile holds a zoned building or a service: something built of bricks over time. */
 export function hasBuilding(city: City, i: number) {
-  return city.structure[i] > ROAD || (city.structure[i] === NONE && city.level[i] > 0);
+  const structure = city.structure[i];
+  return structure === NONE ? city.level[i] > 0 : !isRoad(structure);
 }
 
 /** Removes whatever is built on the tile, leaving its zone. */

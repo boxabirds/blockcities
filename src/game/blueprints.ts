@@ -491,6 +491,8 @@ const DASH_WIDTH = 0.16;
 const DASH_LENGTH = 1.2;
 const DASH_PLATES = 0.06;
 const DASH_STARTS = [0.4, 2.4] as const;
+/** Each of an avenue's two centre lines is this far from the middle. */
+const AVENUE_LINE_GAP = 0.16;
 /** A bridge's piers reach this many plates below the baseplate, and its railings stand this tall. */
 const PIER_PLATES = 3;
 const PIER_DIAMETER = 1;
@@ -502,8 +504,8 @@ const roads = new Map<number, Blueprint>();
  * A road tile. `links` has bit f set where the neighbour in facing f is also
  * road: sides without a neighbour get a kerb, and a straight run gets a centre line.
  */
-export function roadBlueprint(links: number, bridge: boolean): Blueprint {
-  const key = links | (bridge ? 1 << DIR_COUNT : 0);
+export function roadBlueprint(links: number, bridge: boolean, avenue = false): Blueprint {
+  const key = links | (bridge ? 1 << DIR_COUNT : 0) | (avenue ? 1 << (DIR_COUNT + 1) : 0);
   let blueprint = roads.get(key);
   if (blueprint) return blueprint;
   const b = new Builder(), far = LOT - KERB_WIDTH;
@@ -513,7 +515,7 @@ export function roadBlueprint(links: number, bridge: boolean): Blueprint {
     b.round(3, 2, PIER_DIAMETER, -PIER_PLATES, PIER_PLATES, COLOR.LIGHT_GREY, { studs: false });
   }
   b.box(0, 0, LOT, LOT, 0, PLATE, COLOR.ASPHALT, { studs: false });
-  const kerb = bridge ? COLOR.WHITE : COLOR.LIGHT_GREY, height = bridge ? RAILING_PLATES : KERB_PLATES;
+  const kerb = bridge ? COLOR.WHITE : avenue ? COLOR.TAN : COLOR.LIGHT_GREY, height = bridge ? RAILING_PLATES : KERB_PLATES;
   if (!linked(0)) b.box(0, far, LOT, KERB_WIDTH, PLATE, height, kerb);
   if (!linked(2)) b.box(0, 0, LOT, KERB_WIDTH, PLATE, height, kerb);
   // Side kerbs stop short of the end kerbs so the two never overlap.
@@ -529,9 +531,17 @@ export function roadBlueprint(links: number, bridge: boolean): Blueprint {
   }
   const alongZ = linked(0) && linked(2) && !linked(1) && !linked(3), alongX = linked(1) && linked(3) && !linked(0) && !linked(2);
   const middle = (LOT - DASH_WIDTH) / 2;
-  for (const start of DASH_STARTS) {
-    if (alongZ) b.box(middle, start, DASH_WIDTH, DASH_LENGTH, PLATE, DASH_PLATES, COLOR.WHITE);
-    if (alongX) b.box(start, middle, DASH_LENGTH, DASH_WIDTH, PLATE, DASH_PLATES, COLOR.WHITE);
+  if (avenue) {
+    // An avenue has a double yellow line down the middle of every straight run.
+    for (const side of [-AVENUE_LINE_GAP, AVENUE_LINE_GAP]) {
+      if (alongZ) b.box(middle + side, 0, DASH_WIDTH, LOT, PLATE, DASH_PLATES, COLOR.YELLOW);
+      if (alongX) b.box(0, middle + side, LOT, DASH_WIDTH, PLATE, DASH_PLATES, COLOR.YELLOW);
+    }
+  } else {
+    for (const start of DASH_STARTS) {
+      if (alongZ) b.box(middle, start, DASH_WIDTH, DASH_LENGTH, PLATE, DASH_PLATES, COLOR.WHITE);
+      if (alongX) b.box(start, middle, DASH_LENGTH, DASH_WIDTH, PLATE, DASH_PLATES, COLOR.WHITE);
+    }
   }
   blueprint = b.finish();
   roads.set(key, blueprint);

@@ -34,11 +34,14 @@
   game.advance(24 * MONTH);
   // A second row of power stations, then time for the centre to grow tall.
   for (let x = 30; x <= 33; x++) act('plant', x, 31, x, 31);
-  // Every service in every block of the west side, so land value there reaches the top.
+  // Every service down two columns of the west side, so land value there reaches the top.
   const kit = ['park', 'school', 'clinic', 'police', 'fire'];
   for (let z = NORTH + 1; z < SOUTH; z += BLOCK) {
-    for (let x = WEST + 2; x < 21; x += BLOCK + 4) kit.forEach((tool, n) => act(tool, x + n, z + 1, x + n, z + 1));
+    if ((z - NORTH) % (2 * BLOCK) === 1) kit.forEach((tool, n) => act(tool, WEST + 2 + n, z + 1, WEST + 2 + n, z + 1));
+    else kit.forEach((tool, n) => act(tool, WEST + 11 + n, z + 1, WEST + 11 + n, z + 1));
   }
+  // Widen the busiest streets.
+  for (let z = NORTH; z <= SOUTH; z += BLOCK) { afford(5000); act('avenue', WEST, z, EAST, z); }
   game.advance(96 * MONTH);
   return { refused, stats: game.snapshot().stats, money: Math.round(game.snapshot().money), day: game.snapshot().day };
 })()

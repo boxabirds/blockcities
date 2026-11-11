@@ -1,9 +1,9 @@
 /** What a tile is and what it is waiting for, in words. Shown in the inspector and used by the checks. */
-import { FLAG_ACCESS, FLAG_POWER, FLAG_WATER, ROAD, WATER, ZONE_C, ZONE_I, ZONE_NONE, ZONE_R, type City } from './city.ts';
-import { bricksNeeded, desirability, isComplete, spareSupply } from './derive.ts';
+import { AVENUE, FLAG_ACCESS, FLAG_POWER, FLAG_WATER, WATER, ZONE_C, ZONE_I, ZONE_NONE, ZONE_R, isRoad, type City } from './city.ts';
+import { bricksNeeded, congestion, desirability, isComplete, spareSupply, staffing, trafficNoise } from './derive.ts';
 import { SERVICES } from './services.ts';
 import { levelAllowed } from './sim.ts';
-import { DAYS_PER_MONTH, INDUSTRY_GATES, LAND_GATES, MONTHS_PER_YEAR, POPULATION_GATES } from './tuning.ts';
+import { DAYS_PER_MONTH, INDUSTRY_GATES, LAND_GATES, MONTHS_PER_YEAR, POPULATION_GATES, QUIET_SHARE, TRAFFIC_NOISE_WEIGHT } from './tuning.ts';
 import { ZONE_SPECS, maxLevel } from './zones.ts';
 
 export type TileInfo = { title: string; lines: string[] };
@@ -18,19 +18,27 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 
 function landLine(city: City, i: number, zone: number) {
   const value = Math.round(desirability(city, i, zone) * PERCENT), smoke = Math.round(city.pollution[i] * PERCENT);
-  return smoke > 0 ? `Land value ${value} (pollution ${smoke})` : `Land value ${value}`;
+  const noise = Math.round(trafficNoise(city, i) * TRAFFIC_NOISE_WEIGHT[zone] * PERCENT);
+  const against = [smoke > 0 ? `pollution ${smoke}` : '', noise > 0 ? `traffic noise ${noise}` : ''].filter(Boolean).join(', ');
+  return against ? `Land value ${value} (${against})` : `Land value ${value}`;
 }
 
 export function tileInfo(city: City, i: number): TileInfo {
   const structure = city.structure[i], zone = city.zone[i], service = SERVICES[structure];
-  if (structure === ROAD) return { title: city.terrain[i] === WATER ? 'Bridge' : 'Road', lines: [] };
+  if (isRoad(structure)) {
+    const load = congestion(city, i), kind = structure === AVENUE ? 'Avenue' : 'Road';
+    const state = load > 1 ? 'over capacity' : load > QUIET_SHARE ? 'busy' : 'quiet';
+    const lines = [`${Math.round(city.traffic[i])} trips a day · ${state}`];
+    if (load > QUIET_SHARE && structure !== AVENUE) lines.push('Homes along a busy road lose land value: make it an avenue.');
+    return { title: city.terrain[i] === WATER ? `${kind} bridge` : kind, lines };
+  }
   if (service) {
     const lines = [service.blurb];
     if (!isComplete(city, i)) lines.push(`Under construction: ${city.progress[i]} of ${bricksNeeded(city, i)} bricks`);
     else if (service.needsRoad && !(city.flags[i] & FLAG_ACCESS)) lines.push('Needs a road within two tiles to serve anyone');
     else if (service.power) lines.push(`Supplies ${service.power} power`);
     else if (service.water) lines.push(`Supplies ${service.water} water`);
-    lines.push(`Upkeep ${service.upkeep} a day`);
+    lines.push(`Upkeep ${Math.round(service.upkeep * staffing(city))} a day`);
     return { title: service.name, lines };
   }
   if (city.terrain[i] === WATER) return { title: 'Water', lines: ['Roads can cross it as bridges.'] };
@@ -80,7 +88,7 @@ export function advice(city: City): string {
     // A utility still being built counts: the advice is to place one, not to wait.
     if (service?.power) powerSources++;
     if (service?.water) waterSources++;
-    if (city.structure[i] === ROAD) roads++;
+    if (isRoad(city.structure[i])) roads++;
     else if (city.zone[i] !== ZONE_NONE && city.level[i] === 0 && city.flags[i] & FLAG_ACCESS) { emptyByZone[city.zone[i]]++; readyLots++; }
   }
   if (city.money < 0) return 'The city is in debt: raise taxes or bulldoze what it cannot afford.';
@@ -94,6 +102,7 @@ export function advice(city: City): string {
   const spare = spareSupply(city);
   if (readyLots > 0 && spare.power < POWER_HEADROOM) return 'Power is nearly all used, so nothing new is being built: add turbines or a power station.';
   if (readyLots > 0 && spare.water < WATER_HEADROOM) return 'Water is nearly all used, so nothing new is being built: add a water tower.';
+  if (stats.congested > 0) return `${stats.congested} road tiles carry more traffic than they can take: upgrade them to avenues, or put jobs nearer the homes.`;
   for (const zone of [ZONE_R, ZONE_C, ZONE_I]) {
     if (stats.demand[zone] > WANTED_DEMAND && emptyByZone[zone] === 0) return `${ZONE_SPECS[zone].name} are wanted: zone more lots for them near a road.`;
   }

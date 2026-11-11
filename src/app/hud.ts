@@ -3,7 +3,7 @@ import { TOOLS, toolService, type Plan, type Tool } from '../game/actions.ts';
 import { ZONE_C, ZONE_I, ZONE_R, type City } from '../game/city.ts';
 import { advice, dateLabel, type TileInfo } from '../game/info.ts';
 import { SERVICES } from '../game/services.ts';
-import { BRIDGE_COST, BULLDOZE_COST, DAYS_PER_MONTH, MAX_TAX, MIN_TAX, ROAD_COST, SPEED_DAYS_PER_SECOND } from '../game/tuning.ts';
+import { AVENUE_COST, BRIDGE_COST, BULLDOZE_COST, DAYS_PER_MONTH, MAX_TAX, MIN_TAX, ROAD_COST, SPEED_DAYS_PER_SECOND } from '../game/tuning.ts';
 
 const TOAST_MILLISECONDS = 2600;
 const PERCENT = 100;
@@ -15,13 +15,14 @@ type ToolLabel = { name: string; hint: string; group: 'look' | 'build' | 'zone' 
 const TOOL_LABELS: Record<Tool, ToolLabel> = {
   inspect: { name: 'Look', hint: 'Drag to move the view. Point at anything to see what it needs.', group: 'look' },
   road: { name: 'Road', hint: `Drag to lay road. $${ROAD_COST} a tile, $${BRIDGE_COST} over water.`, group: 'build' },
+  avenue: { name: 'Avenue', hint: `Drag to lay an avenue, or over a road to widen it. $${AVENUE_COST} a tile. Carries four times the traffic.`, group: 'build' },
   homes: { name: 'Homes', hint: 'Drag to zone lots for homes. Free. Lots within two tiles of a road get built on.', group: 'zone' },
   shops: { name: 'Shops', hint: 'Drag to zone lots for shops and offices. Free.', group: 'zone' },
   industry: { name: 'Industry', hint: 'Drag to zone lots for industry. Free. It pollutes: keep it away from homes.', group: 'zone' },
   dezone: { name: 'Unzone', hint: 'Drag to remove zoning and whatever was built on it.', group: 'zone' },
   bulldoze: { name: 'Bulldoze', hint: `Drag to clear roads, buildings and trees. $${BULLDOZE_COST} a tile.`, group: 'build' },
   wind: { name: 'Turbine', hint: '', group: 'utility' },
-  plant: { name: 'Power stn', hint: '', group: 'utility' },
+  plant: { name: 'Power', hint: '', group: 'utility' },
   tower: { name: 'Water', hint: '', group: 'utility' },
   park: { name: 'Park', hint: '', group: 'service' },
   school: { name: 'School', hint: '', group: 'service' },
@@ -72,7 +73,7 @@ export function hudMarkup() {
   <div id="toast" class="toast" role="alert"></div>
   <details class="help"><summary>Controls</summary>
     <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or middle-drag: move · <kbd>Q</kbd><kbd>E</kbd> or right-drag: turn · <kbd>R</kbd><kbd>F</kbd>: tilt · wheel or <kbd>Z</kbd><kbd>X</kbd>: zoom</p>
-    <p><kbd>1</kbd>–<kbd>6</kbd>: tools · <kbd>Esc</kbd>: put the tool down · <kbd>Space</kbd>: pause</p>
+    <p><kbd>1</kbd>–<kbd>9</kbd>: tools · <kbd>Esc</kbd>: put the tool down · <kbd>Space</kbd>: pause</p>
   </details>`;
 }
 

@@ -1,9 +1,9 @@
 /**
  * Cars on the roads. Each one drives the shortest way between the roads of two
- * buildings and then disappears. This is for show: congestion is not modelled
- * and nothing in the simulation depends on it.
+ * buildings and then disappears. This is for show: the traffic the simulation
+ * counts is the load worked out in derive.ts, not these cars.
  */
-import { DIR_COUNT, DIR_X, DIR_Z, ROAD, hasBuilding, type City } from './city.ts';
+import { DIR_COUNT, DIR_X, DIR_Z, hasBuilding, isRoad, type City } from './city.ts';
 import { nextInt, nextRandom, type RandomState } from './rng.ts';
 import { LANE_OFFSET, MAX_VEHICLES, RESIDENTS_PER_VEHICLE, TILE_STUDS, VEHICLE_SPAWNS_PER_SECOND, VEHICLE_SPEED } from './tuning.ts';
 
@@ -56,7 +56,7 @@ const UNSEEN = -1, START = -2;
 /** Shortest run of road tiles from `from` to `to`, written to `out` in travel order. Returns its length, or 0 when there is none. */
 export function findRoute(city: City, traffic: Traffic, from: number, to: number, out: Int32Array) {
   const { size, structure } = city, { queue } = traffic, seen = traffic.from;
-  if (structure[from] !== ROAD || structure[to] !== ROAD) return 0;
+  if (!isRoad(structure[from]) || !isRoad(structure[to])) return 0;
   seen.fill(UNSEEN);
   // Search backwards from the destination, so following `seen` from the start walks forwards.
   let head = 0, tail = 0;
@@ -67,7 +67,7 @@ export function findRoute(city: City, traffic: Traffic, from: number, to: number
       const nx = x + DIR_X[facing], nz = z + DIR_Z[facing];
       if (nx < 0 || nz < 0 || nx >= size || nz >= size) continue;
       const n = nz * size + nx;
-      if (structure[n] !== ROAD || seen[n] !== UNSEEN) continue;
+      if (!isRoad(structure[n]) || seen[n] !== UNSEEN) continue;
       seen[n] = i; queue[tail++] = n;
     }
   }
@@ -130,7 +130,7 @@ export function stepTraffic(traffic: Traffic, city: City, dt: number) {
     let travel = VEHICLE_SPEED * TILE_STUDS * dt;
     while (vehicle.active) {
       const a = vehicle.segment * 2, b = a + 2;
-      if (vehicle.segment >= vehicle.pointCount - 1 || city.structure[vehicle.tiles[vehicle.segment + 1]] !== ROAD) { vehicle.active = false; break; }
+      if (vehicle.segment >= vehicle.pointCount - 1 || !isRoad(city.structure[vehicle.tiles[vehicle.segment + 1]])) { vehicle.active = false; break; }
       const dx = vehicle.points[b] - vehicle.points[a], dz = vehicle.points[b + 1] - vehicle.points[a + 1];
       const length = Math.hypot(dx, dz), left = length * (1 - vehicle.along);
       if (travel >= left) { travel -= left; vehicle.segment++; vehicle.along = 0; continue; }

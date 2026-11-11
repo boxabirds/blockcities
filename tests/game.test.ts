@@ -3,16 +3,16 @@ import { test } from 'node:test';
 import { applyTool, planTool, TOOLS } from '../src/game/actions.ts';
 import { BOX, CONE, PALETTE, buildingBlueprint, roadBlueprint, treeBlueprint, type Blueprint } from '../src/game/blueprints.ts';
 import {
-  CLINIC, DIR_COUNT, FIRE, FLAG_ACCESS, GRASS, NONE, PARK, PLANT, POLICE, ROAD, SCHOOL, TOWER, WATER, WIND, ZONE_C, ZONE_I, ZONE_NONE, ZONE_R,
-  tileIndex, type City,
+  AVENUE, CLINIC, DIR_COUNT, FIRE, FLAG_ACCESS, GRASS, NONE, PARK, PLANT, POLICE, ROAD, SCHOOL, TOWER, WATER, WIND, ZONE_C, ZONE_I, ZONE_NONE, ZONE_R,
+  hasBuilding, tileIndex, type City,
 } from '../src/game/city.ts';
-import { bricksNeeded, derive, isComplete } from '../src/game/derive.ts';
+import { bricksNeeded, congestion, derive, desirability, isComplete, staffing, trafficNoise } from '../src/game/derive.ts';
 import { advice, dateLabel, tileInfo } from '../src/game/info.ts';
 import { loadCity, saveCity } from '../src/game/save.ts';
 import { SERVICES } from '../src/game/services.ts';
 import { newCity, tick } from '../src/game/sim.ts';
 import { activeVehicles, createTraffic, findRoute, stepTraffic } from '../src/game/traffic.ts';
-import { BRIDGE_COST, DAYS_PER_MONTH, MAP_SIZE, MAX_TAX, ROAD_COST, START_MONEY, TILE_STUDS } from '../src/game/tuning.ts';
+import { AVENUE_CAPACITY, AVENUE_COST, BRIDGE_COST, DAYS_PER_MONTH, ROAD_CAPACITY, STAFFING_POPULATION, WORKFORCE_SHARE, MAP_SIZE, MAX_TAX, ROAD_COST, START_MONEY, TILE_STUDS } from '../src/game/tuning.ts';
 import { ZONE_SPECS, maxLevel } from '../src/game/zones.ts';
 
 const SEED = 7;
@@ -55,6 +55,7 @@ function everyBlueprint(): { name: string; blueprint: Blueprint }[] {
   for (const service of [WIND, PLANT, TOWER, PARK, SCHOOL, CLINIC, POLICE, FIRE]) all.push({ name: SERVICES[service]!.name, blueprint: buildingBlueprint(service, ZONE_NONE, 0, 1) });
   for (let links = 0; links < 1 << DIR_COUNT; links++) {
     all.push({ name: `road ${links}`, blueprint: roadBlueprint(links, false) }, { name: `bridge ${links}`, blueprint: roadBlueprint(links, true) });
+    all.push({ name: `avenue ${links}`, blueprint: roadBlueprint(links, false, true) }, { name: `avenue bridge ${links}`, blueprint: roadBlueprint(links, true, true) });
   }
   for (let look = 1; look <= TREE_LOOKS; look++) all.push({ name: `trees ${look}`, blueprint: treeBlueprint(look) });
   return all;
@@ -155,7 +156,7 @@ test('a road over water is a bridge and costs more', () => {
   city.terrain[tileIndex(city, 6, 5)] = WATER;
   const plan = applyTool(city, 'road', 5, 5, 7, 5);
   assert.equal(plan.cost, 2 * ROAD_COST + BRIDGE_COST);
-  assert.equal(tileInfo(city, tileIndex(city, 6, 5)).title, 'Bridge');
+  assert.equal(tileInfo(city, tileIndex(city, 6, 5)).title, 'Road bridge');
 });
 
 test('zoning fills a rectangle, skips water and roads, and is free', () => {
@@ -411,4 +412,76 @@ test('the advisor names the next thing a new mayor has to do', () => {
   applyTool(city, 'tower', 0, 0, 9, 18);
   run(city, 4 * DAYS_PER_MONTH);
   assert.match(advice(city), /^(Shops|Industry) are wanted/);
+});
+
+// --- Traffic load, avenues and staffing ------------------------------------------
+
+/** Homes at the west end of one long street and jobs at the east end, all finished at the level given. */
+function commuterStreet(homeLevel: number): City {
+  const city = meadow();
+  applyTool(city, 'road', 5, 20, 40, 20);
+  applyTool(city, 'homes', 5, 19, 14, 19);
+  applyTool(city, 'shops', 36, 19, 40, 19);
+  for (let x = 5; x <= 14; x++) city.level[tileIndex(city, x, 19)] = homeLevel;
+  for (let x = 36; x <= 40; x++) city.level[tileIndex(city, x, 19)] = 1;
+  applyTool(city, 'plant', 0, 0, 44, 30); applyTool(city, 'tower', 0, 0, 44, 32);
+  for (let i = 0; i < city.size * city.size; i++) if (hasBuilding(city, i)) city.progress[i] = bricksNeeded(city, i);
+  derive(city);
+  return city;
+}
+
+test('every working resident makes one trip to the nearest jobs, and the trips add up along the road', () => {
+  const city = commuterStreet(3), perHome = ZONE_SPECS[ZONE_R].capacity[3] * WORKFORCE_SHARE;
+  const at = (x: number) => city.traffic[tileIndex(city, x, 20)];
+  assert.equal(at(5), perHome, 'the far end carries one home');
+  assert.equal(at(9), 5 * perHome, 'five homes in');
+  assert.equal(at(14), 10 * perHome, 'all ten homes');
+  assert.equal(at(25), 10 * perHome, 'the open road carries all of it');
+  assert.equal(at(36), 10 * perHome, 'up to the first road with jobs on it');
+  assert.equal(at(38), 0, 'nobody drives past the first jobs');
+  assert.equal(city.traffic[tileIndex(city, 25, 19)], 0, 'only roads carry traffic');
+  // With no jobs to go to, nobody travels.
+  applyTool(city, 'dezone', 36, 19, 40, 19);
+  assert.equal(at(25), 0);
+});
+
+test('a road over capacity is noisy for the homes on it, and an avenue quietens it', () => {
+  const quiet = commuterStreet(1), loud = commuterStreet(5);
+  const home = tileIndex(loud, 14, 19), road = tileIndex(loud, 14, 20);
+  assert.equal(trafficNoise(quiet, home), 0);
+  assert.ok(congestion(loud, road) > 1, `congestion ${congestion(loud, road)}`);
+  assert.ok(trafficNoise(loud, home) > 0);
+  assert.ok(desirability(loud, home, ZONE_R) < desirability(quiet, home, ZONE_R));
+  assert.equal(desirability(loud, home, ZONE_C), desirability(quiet, home, ZONE_C), 'shops do not mind');
+  assert.ok(loud.stats.congested > 0);
+  assert.match(tileInfo(loud, road).lines[0], /trips a day · over capacity$/);
+  assert.match(advice(loud), /more traffic than they can take/);
+
+  const noisy = trafficNoise(loud, home), before = loud.money, plan = applyTool(loud, 'avenue', 5, 20, 40, 20);
+  assert.ok(plan.ok);
+  assert.equal(before - loud.money, 36 * (AVENUE_COST - ROAD_COST), 'widening a road costs the difference');
+  assert.equal(loud.structure[road], AVENUE);
+  assert.equal(hasBuilding(loud, road), false);
+  assert.equal(congestion(loud, road), loud.traffic[road] / AVENUE_CAPACITY);
+  assert.ok(AVENUE_CAPACITY > ROAD_CAPACITY);
+  assert.ok(trafficNoise(loud, home) < noisy / 2, `noise ${trafficNoise(loud, home)} from ${noisy}`);
+  assert.equal(loud.stats.congested, 0);
+  assert.equal(tileInfo(loud, road).title, 'Avenue');
+  assert.equal(planTool(loud, 'avenue', 5, 20, 40, 20).reason, 'Already an avenue');
+  assert.equal(planTool(loud, 'road', 5, 20, 40, 20).reason, 'Already a road');
+  // Lots are still reached from an avenue, and cars still drive on it.
+  assert.ok(loud.flags[home] & FLAG_ACCESS);
+  const traffic = createTraffic(loud.size * loud.size, 1), out = new Int32Array(loud.size * loud.size);
+  assert.equal(findRoute(loud, traffic, tileIndex(loud, 5, 20), tileIndex(loud, 40, 20), out), 36);
+});
+
+test('services cost more to run as the city grows', () => {
+  const small = commuterStreet(1), large = commuterStreet(5);
+  for (const city of [small, large]) { applyTool(city, 'school', 0, 0, 20, 19); }
+  assert.equal(staffing(large), 1 + large.stats.population / STAFFING_POPULATION);
+  assert.ok(staffing(large) > staffing(small));
+  const services = SERVICES[SCHOOL]!.upkeep + SERVICES[PLANT]!.upkeep + SERVICES[TOWER]!.upkeep;
+  const roads = (city: City) => city.stats.expenses - services * staffing(city);
+  assert.ok(Math.abs(roads(large) - roads(small)) < EPSILON, 'road upkeep does not depend on population');
+  assert.ok(large.stats.expenses > small.stats.expenses);
 });

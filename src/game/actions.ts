@@ -4,18 +4,18 @@
  * cannot drift apart.
  */
 import {
-  CLINIC, FIRE, NO_FACING, NONE, PARK, PLANT, POLICE, ROAD, SCHOOL, TOWER, WATER, WIND, ZONE_C, ZONE_I, ZONE_NONE, ZONE_R,
+  AVENUE, CLINIC, FIRE, NO_FACING, NONE, PARK, PLANT, POLICE, ROAD, SCHOOL, TOWER, WATER, WIND, ZONE_C, ZONE_I, ZONE_NONE, ZONE_R,
   clearBuilding, hasBuilding, inMap, tileIndex, type City,
 } from './city.ts';
 import { derive } from './derive.ts';
 import { SERVICES } from './services.ts';
-import { BRIDGE_COST, BULLDOZE_COST, ROAD_COST } from './tuning.ts';
+import { AVENUE_BRIDGE_COST, AVENUE_COST, BRIDGE_COST, BULLDOZE_COST, ROAD_COST } from './tuning.ts';
 
 /** Looks a service can take (only the park's trees differ), chosen by where it stands. */
 const SERVICE_LOOKS = 8;
 
 export const TOOLS = [
-  'inspect', 'road', 'homes', 'shops', 'industry', 'dezone', 'bulldoze', 'wind', 'plant', 'tower', 'park', 'school', 'clinic', 'police', 'fire',
+  'inspect', 'road', 'avenue', 'homes', 'shops', 'industry', 'dezone', 'bulldoze', 'wind', 'plant', 'tower', 'park', 'school', 'clinic', 'police', 'fire',
 ] as const;
 export type Tool = (typeof TOOLS)[number];
 
@@ -27,7 +27,7 @@ const TOOL_SERVICE: Partial<Record<Tool, number>> = {
 export function toolService(tool: Tool) { return TOOL_SERVICE[tool]; }
 /** Dragging this tool draws a line (road), fills a rectangle, or does nothing (it acts on one tile). */
 export function toolDrag(tool: Tool): 'line' | 'area' | 'single' {
-  if (tool === 'road') return 'line';
+  if (tool === 'road' || tool === 'avenue') return 'line';
   return tool in TOOL_ZONE || tool === 'dezone' || tool === 'bulldoze' ? 'area' : 'single';
 }
 
@@ -65,10 +65,13 @@ function tilesUnder(city: City, tool: Tool, x0: number, z0: number, x1: number, 
 /** Cost of applying the tool to one tile, or a reason (a string) it would do nothing there. */
 function costAt(city: City, tool: Tool, i: number): number | string {
   const structure = city.structure[i], water = city.terrain[i] === WATER;
-  if (tool === 'road') {
-    if (structure === ROAD) return 'Already a road';
+  if (tool === 'road' || tool === 'avenue') {
+    const road = water ? BRIDGE_COST : ROAD_COST, avenue = water ? AVENUE_BRIDGE_COST : AVENUE_COST;
+    if (structure === AVENUE) return tool === 'avenue' ? 'Already an avenue' : 'Already a road';
+    // An avenue over a road is an upgrade: the road already there is paid for.
+    if (structure === ROAD) return tool === 'avenue' ? avenue - road : 'Already a road';
     if (structure !== NONE) return 'Something is built here';
-    return water ? BRIDGE_COST : ROAD_COST;
+    return tool === 'avenue' ? avenue : road;
   }
   if (tool === 'bulldoze') return structure !== NONE || hasBuilding(city, i) || city.tree[i] ? BULLDOZE_COST : 'Nothing to clear';
   if (tool === 'dezone') return city.zone[i] !== ZONE_NONE ? 0 : 'Not zoned';
@@ -101,8 +104,8 @@ export function planTool(city: City, tool: Tool, x0: number, z0: number, x1: num
 }
 
 function applyAt(city: City, tool: Tool, i: number) {
-  if (tool === 'road') {
-    city.structure[i] = ROAD; city.zone[i] = ZONE_NONE; city.tree[i] = 0; clearBuilding(city, i);
+  if (tool === 'road' || tool === 'avenue') {
+    city.structure[i] = tool === 'avenue' ? AVENUE : ROAD; city.zone[i] = ZONE_NONE; city.tree[i] = 0; clearBuilding(city, i);
   } else if (tool === 'bulldoze') {
     city.structure[i] = NONE; city.tree[i] = 0; clearBuilding(city, i);
   } else if (tool === 'dezone') {

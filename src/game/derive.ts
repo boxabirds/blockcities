@@ -4,15 +4,15 @@
  * each zone. Run after every change and at the start of every day.
  */
 import {
-  DIR_COUNT, DIR_X, DIR_Z, FLAG_ACCESS, FLAG_POWER, FLAG_WATER, NO_FACING, NONE, ROAD, STRUCTURE_COUNT, WATER, ZONE_C, ZONE_I,
-  ZONE_NONE, ZONE_R, hasBuilding, type City,
+  AVENUE, DIR_COUNT, DIR_X, DIR_Z, FLAG_ACCESS, FLAG_POWER, FLAG_WATER, NO_FACING, NONE, STRUCTURE_COUNT, WATER, ZONE_C, ZONE_I,
+  ZONE_NONE, ZONE_R, hasBuilding, isRoad, type City,
 } from './city.ts';
 import { buildingBlueprint } from './blueprints.ts';
 import { SERVICES } from './services.ts';
 import {
-  BRIDGE_UPKEEP, COMMERCIAL_JOBS_PER_RESIDENT, DEFAULT_TAX, DEMAND_SCALE_SHARE, INDUSTRIAL_JOBS_PER_RESIDENT, INDUSTRY_POLLUTION,
-  INDUSTRY_POLLUTION_RADIUS, MIN_DEMAND_SCALE, NEWCOMER_SHARE, POLLUTION_WEIGHT, ROAD_REACH, ROAD_UPKEEP, STARTER_HOMES,
-  TAX_DEMAND_PER_POINT, WORKFORCE_SHARE,
+  AVENUE_BRIDGE_UPKEEP, AVENUE_CAPACITY, AVENUE_UPKEEP, BRIDGE_UPKEEP, COMMERCIAL_JOBS_PER_RESIDENT, DEFAULT_TAX, DEMAND_SCALE_SHARE, INDUSTRIAL_JOBS_PER_RESIDENT, INDUSTRY_POLLUTION,
+  INDUSTRY_POLLUTION_RADIUS, MIN_DEMAND_SCALE, NEWCOMER_SHARE, POLLUTION_WEIGHT, QUIET_SHARE, ROAD_CAPACITY, ROAD_REACH, ROAD_UPKEEP,
+  STAFFING_POPULATION, STARTER_HOMES, TAX_DEMAND_PER_POINT, TRAFFIC_NOISE_WEIGHT, WORKFORCE_SHARE,
 } from './tuning.ts';
 import { ZONE_SPECS } from './zones.ts';
 
@@ -31,10 +31,25 @@ export function capacityOf(city: City, i: number) {
   return city.structure[i] === NONE && city.zone[i] !== ZONE_NONE ? ZONE_SPECS[city.zone[i]].capacity[city.level[i]] : 0;
 }
 
-/** Land value as a lot of `zone` feels it: services nearby, less the pollution that zone minds. */
-export function desirability(city: City, i: number, zone: number) {
-  return city.landValue[i] - city.pollution[i] * POLLUTION_WEIGHT[zone];
+/** Trips a day over a road tile as a share of what it has room for (0 for anything that is not a road). */
+export function congestion(city: City, i: number) {
+  const structure = city.structure[i];
+  return isRoad(structure) ? city.traffic[i] / (structure === AVENUE ? AVENUE_CAPACITY : ROAD_CAPACITY) : 0;
 }
+
+/** How loud the road a lot is reached from is, 0 (quiet) to 1. */
+export function trafficNoise(city: City, i: number) {
+  const road = city.roadOf[i];
+  return road < 0 ? 0 : Math.min(1, Math.max(0, congestion(city, road) - QUIET_SHARE));
+}
+
+/** Land value as a lot of `zone` feels it: services nearby, less the pollution and traffic noise that zone minds. */
+export function desirability(city: City, i: number, zone: number) {
+  return city.landValue[i] - city.pollution[i] * POLLUTION_WEIGHT[zone] - trafficNoise(city, i) * TRAFFIC_NOISE_WEIGHT[zone];
+}
+
+/** What services cost to run, as a multiple of their listed upkeep: more staff for more residents. */
+export function staffing(city: City) { return 1 + city.stats.population / STAFFING_POPULATION; }
 
 let queue = new Int32Array(0);
 let distance = new Uint8Array(0);
@@ -46,7 +61,7 @@ function reachRoads(city: City) {
   let head = 0, tail = 0;
   for (let i = 0; i < tiles; i++) {
     flags[i] = 0; frontDir[i] = NO_FACING;
-    if (structure[i] === ROAD) { roadOf[i] = i; distance[i] = 0; queue[tail++] = i; } else roadOf[i] = -1;
+    if (isRoad(structure[i])) { roadOf[i] = i; distance[i] = 0; queue[tail++] = i; } else roadOf[i] = -1;
   }
   while (head < tail) {
     const i = queue[head++], x = i % size, z = (i - x) / size;
@@ -62,6 +77,46 @@ function reachRoads(city: City) {
       flags[n] |= FLAG_ACCESS;
       queue[tail++] = n;
     }
+  }
+}
+
+const UNSEEN = -2, JOBS_HERE = -1;
+let toward = new Int32Array(0);
+
+/**
+ * Every working resident makes one trip a day from home to the nearest jobs by road. This adds those trips up
+ * over each road tile they cross: one search outward from every road with jobs on it, then each road tile hands
+ * its trips on to the tile it was reached from.
+ */
+function surveyTraffic(city: City) {
+  const { size, structure, zone, traffic, roadOf } = city, tiles = size * size;
+  if (toward.length < tiles) toward = new Int32Array(tiles);
+  traffic.fill(0); toward.fill(UNSEEN, 0, tiles);
+  let head = 0, tail = 0;
+  for (let i = 0; i < tiles; i++) {
+    const road = roadOf[i];
+    if (road < 0 || structure[i] !== NONE || (zone[i] !== ZONE_C && zone[i] !== ZONE_I) || toward[road] !== UNSEEN || !isComplete(city, i)) continue;
+    toward[road] = JOBS_HERE; queue[tail++] = road;
+  }
+  while (head < tail) {
+    const i = queue[head++], x = i % size, z = (i - x) / size;
+    for (let facing = 0; facing < DIR_COUNT; facing++) {
+      const nx = x + DIR_X[facing], nz = z + DIR_Z[facing];
+      if (nx < 0 || nz < 0 || nx >= size || nz >= size) continue;
+      const n = nz * size + nx;
+      if (!isRoad(structure[n]) || toward[n] !== UNSEEN) continue;
+      toward[n] = i; queue[tail++] = n;
+    }
+  }
+  for (let i = 0; i < tiles; i++) {
+    const road = roadOf[i];
+    if (road < 0 || structure[i] !== NONE || zone[i] !== ZONE_R || toward[road] === UNSEEN || !isComplete(city, i)) continue;
+    traffic[road] += capacityOf(city, i) * WORKFORCE_SHARE;
+  }
+  // The queue is in order of distance from the jobs, so walking it backwards meets every tile after all that feed it.
+  for (let n = tail - 1; n >= 0; n--) {
+    const i = queue[n];
+    if (toward[i] >= 0) traffic[toward[i]] += traffic[i];
   }
 }
 
@@ -107,13 +162,18 @@ const clampDemand = (value: number) => Math.max(-1, Math.min(1, value));
 
 function countAndSupply(city: City) {
   const { size, structure, zone, flags, stats } = city, tiles = size * size;
-  let powerSupply = 0, waterSupply = 0, upkeep = 0, zonedLots = 0;
+  let powerSupply = 0, waterSupply = 0, roadUpkeep = 0, serviceUpkeep = 0, zonedLots = 0, congested = 0;
   for (let i = 0; i < tiles; i++) {
     const kind = structure[i];
-    if (kind === ROAD) { upkeep += city.terrain[i] === WATER ? BRIDGE_UPKEEP : ROAD_UPKEEP; continue; }
+    if (isRoad(kind)) {
+      const bridge = city.terrain[i] === WATER;
+      roadUpkeep += kind === AVENUE ? (bridge ? AVENUE_BRIDGE_UPKEEP : AVENUE_UPKEEP) : (bridge ? BRIDGE_UPKEEP : ROAD_UPKEEP);
+      if (congestion(city, i) > 1) congested++;
+      continue;
+    }
     const service = SERVICES[kind];
     if (service) {
-      upkeep += service.upkeep;
+      serviceUpkeep += service.upkeep;
       if (isComplete(city, i)) { powerSupply += service.power; waterSupply += service.water; }
     } else if (zone[i] !== ZONE_NONE) zonedLots++;
   }
@@ -140,7 +200,8 @@ function countAndSupply(city: City) {
   stats.population = population; stats.commercialJobs = commercialJobs; stats.industrialJobs = industrialJobs;
   stats.powerSupply = powerSupply; stats.powerUse = powerUse; stats.waterSupply = waterSupply; stats.waterUse = waterUse;
   stats.zonedLots = zonedLots; stats.withoutRoad = withoutRoad; stats.withoutPower = withoutPower; stats.withoutWater = withoutWater;
-  stats.expenses = upkeep;
+  stats.congested = congested;
+  stats.expenses = roadUpkeep + serviceUpkeep * staffing(city);
   stats.income = taxScale * (population * ZONE_SPECS[ZONE_R].taxPerUnit
     + employed * (commercialJobs * ZONE_SPECS[ZONE_C].taxPerUnit + industrialJobs * ZONE_SPECS[ZONE_I].taxPerUnit));
 
@@ -160,6 +221,7 @@ export function derive(city: City) {
   for (let i = 0; i < tiles; i++) {
     if (city.facing[i] === NO_FACING && city.frontDir[i] !== NO_FACING && hasBuilding(city, i)) { city.facing[i] = city.frontDir[i]; city.buildRevision++; }
   }
+  surveyTraffic(city);
   surveyLand(city);
   countAndSupply(city);
 }

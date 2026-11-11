@@ -12,7 +12,7 @@ import * as THREE from 'three/webgpu';
 import type { Plan, Tool } from '../game/actions.ts';
 import { toolService } from '../game/actions.ts';
 import { BOX, COLOR, TURBINE_HUB_FORWARD, TURBINE_HUB_PLATES, buildingBlueprint, roadBlueprint, treeBlueprint } from '../game/blueprints.ts';
-import { DIR_COUNT, DIR_X, DIR_Z, NO_FACING, NONE, ROAD, WATER, WIND, ZONE_C, ZONE_I, ZONE_NONE, ZONE_R, hasBuilding, type City } from '../game/city.ts';
+import { AVENUE, DIR_COUNT, DIR_X, DIR_Z, NO_FACING, NONE, WATER, WIND, ZONE_C, ZONE_I, ZONE_NONE, ZONE_R, hasBuilding, isRoad, type City } from '../game/city.ts';
 import { isComplete } from '../game/derive.ts';
 import type { Traffic } from '../game/traffic.ts';
 import { MAX_VEHICLES, PLATE_HEIGHT, TILE_STUDS } from '../game/tuning.ts';
@@ -60,7 +60,7 @@ const PREVIEW_LIFT = 0.1;
 const PREVIEW_HEADROOM = 1;
 const PREVIEW_INSET = 0.3;
 const TOOL_PREVIEW: Partial<Record<Tool, number>> = {
-  inspect: COLOR.GLASS_CLEAR, road: COLOR.BLACK, homes: COLOR.LIME, shops: COLOR.AZURE, industry: COLOR.YELLOW,
+  inspect: COLOR.GLASS_CLEAR, road: COLOR.BLACK, avenue: COLOR.BLACK, homes: COLOR.LIME, shops: COLOR.AZURE, industry: COLOR.YELLOW,
   dezone: COLOR.GLASS_CLEAR, bulldoze: COLOR.ORANGE,
 };
 const PREVIEW_BLOCKED = COLOR.RED;
@@ -152,13 +152,13 @@ export class CityView {
             for (let sz = 0; sz < TILE_STUDS; sz++) for (let sx = 0; sx < TILE_STUDS; sx++) baseplate.stud(lotX + sx + 0.5, 0, lotZ + sz + 0.5, tint, false);
           }
         }
-        if (structure[i] === ROAD) {
+        if (isRoad(structure[i])) {
           let links = 0;
           for (let facing = 0; facing < DIR_COUNT; facing++) {
             const nx = x + DIR_X[facing], nz = z + DIR_Z[facing];
-            if (nx >= 0 && nz >= 0 && nx < size && nz < size && structure[nz * size + nx] === ROAD) links |= 1 << facing;
+            if (nx >= 0 && nz >= 0 && nx < size && nz < size && isRoad(structure[nz * size + nx])) links |= 1 << facing;
           }
-          fixtures.blueprint(roadBlueprint(links, terrain[i] === WATER), lotX, lotZ, 0);
+          fixtures.blueprint(roadBlueprint(links, terrain[i] === WATER, structure[i] === AVENUE), lotX, lotZ, 0);
         } else if (tree[i] && !hasBuilding(city, i)) {
           fixtures.blueprint(treeBlueprint(tree[i]), lotX, lotZ, 0);
         }
@@ -265,7 +265,7 @@ export class CityView {
         // Over something built, the box stands clear of it so it can be seen from any side.
         let top = PREVIEW_PLATES;
         if (hasBuilding(city, i)) top = buildingBlueprint(city.structure[i], city.zone[i], city.level[i], city.variant[i]).height + PREVIEW_HEADROOM;
-        else if (city.structure[i] === ROAD) top = PREVIEW_PLATES + PREVIEW_HEADROOM;
+        else if (isRoad(city.structure[i])) top = PREVIEW_PLATES + PREVIEW_HEADROOM;
         const blocked = !applies && tool !== 'inspect';
         // A tile the tool would leave alone is not marked, unless the whole plan is refused.
         if (blocked && plan.ok) return;

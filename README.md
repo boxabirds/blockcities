@@ -21,7 +21,12 @@ Open the address it prints in a WebGPU browser (Chrome, Edge, recent Safari).
 5. **Park, School, Clinic, Police, Fire** raise land value around them; land
    value and the city's size decide how tall homes and shops grow, from
    cottages to glass towers. Industry and power stations pollute, which lowers it.
-6. **Budget** sets the tax rate: more income per resident and job, less demand.
+6. Every working resident drives to the nearest jobs each day. A road past half
+   its capacity is noisy and lowers the land value of the homes along it.
+   **Avenue** carries four times as much: drag it over a road to widen it, or
+   put jobs nearer the homes.
+7. **Budget** sets the tax rate: more income per resident and job, less demand.
+   Services cost more to run as the city grows, so a big city has to choose.
 
 The line under the title always says what the city needs next, and pointing at
 any tile says what it is waiting for.
@@ -42,11 +47,14 @@ The city saves itself to the browser every 15 game days and when the tab is hidd
 
 - Power and water are city-wide totals, not networks: supply reaches every
   building until it runs out, in map order.
-- Cars are for show. They drive real shortest routes between buildings and keep
-  to the right, but there is no congestion and nothing depends on them.
+- Traffic is a daily load on each road tile, from every home to its nearest
+  jobs by the shortest way. It makes noise; it does not slow anyone down, and
+  shops and industry do not mind it. The cars you see are for show: they drive
+  real routes and keep to the right, but they are not that load.
+- A finished building never shrinks because its land value fell, only when
+  demand turns negative or it loses its road, power or water.
 - There are no disasters, crime or fire events: police, fire stations, clinics
   and schools all act as land value.
-- The money gets easy once a city is established.
 - There is no sound, and no touch gestures beyond a one-finger drag.
 
 ## How it is put together

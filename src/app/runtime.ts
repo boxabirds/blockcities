@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three/webgpu';
 import { TOOLS, applyTool, planTool, type Plan, type Tool } from '../game/actions.ts';
-import { ROAD, tileIndex, type City, type Stats } from '../game/city.ts';
+import { isRoad, tileIndex, type City, type Stats } from '../game/city.ts';
 import { tileInfo, type TileInfo } from '../game/info.ts';
 import { loadCity, saveCity } from '../game/save.ts';
 import { newCity, tick } from '../game/sim.ts';
@@ -184,7 +184,7 @@ export async function startGame(stage: (message: string) => void, fail: (reason:
     snapshot: () => ({
       day: city.day, money: city.money, tax: city.tax, speed, tool: input.tool, frames,
       stats: structuredClone(city.stats), vehicles: activeVehicles(traffic),
-      roads: city.structure.reduce((count, structure) => count + (structure === ROAD ? 1 : 0), 0),
+      roads: city.structure.reduce((count, structure) => count + (isRoad(structure) ? 1 : 0), 0),
       buildings: city.level.reduce((count, level) => count + (level > 0 ? 1 : 0), 0),
       hover: input.hover, inspector: info, advice: document.querySelector('#advice')!.textContent ?? '', toast: lastToast,
     }),

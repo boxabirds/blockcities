@@ -32,10 +32,17 @@ export const AUTOSAVE_DAYS = 15;
 export const START_MONEY = 20_000;
 export const ROAD_COST = 10;
 export const BRIDGE_COST = 60;
+/** An avenue carries far more traffic than a road. Laid over a road, it costs the difference. */
+export const AVENUE_COST = 40;
+export const AVENUE_BRIDGE_COST = 200;
 export const BULLDOZE_COST = 3;
 /** Daily upkeep of one road tile and one bridge tile. */
 export const ROAD_UPKEEP = 0.04;
 export const BRIDGE_UPKEEP = 0.2;
+export const AVENUE_UPKEEP = 0.15;
+export const AVENUE_BRIDGE_UPKEEP = 0.6;
+/** Services need more staff as the city grows: their upkeep doubles for each this many residents. */
+export const STAFFING_POPULATION = 10_000;
 /** Tax rate in percent: the starting rate and the range the slider allows. */
 export const DEFAULT_TAX = 9;
 export const MIN_TAX = 0;
@@ -88,7 +95,17 @@ export const INDUSTRY_POLLUTION_RADIUS = 5;
 /** How much of the pollution on a lot counts against its land value, by zone (none, R, C, I). */
 export const POLLUTION_WEIGHT = [0, 1, 0.5, 0] as const;
 
-// --- Traffic (drawn only; it does not feed back into the simulation) ------------
+// --- Traffic load ----------------------------------------------------------------
+
+/** Trips a day a road and an avenue carry before they are full. */
+export const ROAD_CAPACITY = 300;
+export const AVENUE_CAPACITY = 1200;
+/** A road is quiet up to this share of its capacity; beyond it, the lots it serves hear it. */
+export const QUIET_SHARE = 0.5;
+/** Land value lost on a lot whose road is a full capacity past quiet, by zone (none, R, C, I). */
+export const TRAFFIC_NOISE_WEIGHT = [0, 0.5, 0, 0] as const;
+
+// --- Cars (drawn only; the load above is what the simulation uses) ---------------
 
 export const MAX_VEHICLES = 160;
 /** One vehicle is on the road for this many residents. */
