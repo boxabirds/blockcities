@@ -27,22 +27,8 @@ export const MONTHS_PER_YEAR = 12;
 export const MAX_DAYS_PER_FRAME = 4;
 export const AUTOSAVE_DAYS = 15;
 
-// --- Money ---------------------------------------------------------------------
+// --- Tax (what things cost and pay is in balance.json; see balance.ts) ----------
 
-export const START_MONEY = 20_000;
-export const ROAD_COST = 10;
-export const BRIDGE_COST = 60;
-/** An avenue carries far more traffic than a road. Laid over a road, it costs the difference. */
-export const AVENUE_COST = 40;
-export const AVENUE_BRIDGE_COST = 200;
-export const BULLDOZE_COST = 3;
-/** Daily upkeep of one road tile and one bridge tile. */
-export const ROAD_UPKEEP = 0.04;
-export const BRIDGE_UPKEEP = 0.2;
-export const AVENUE_UPKEEP = 0.15;
-export const AVENUE_BRIDGE_UPKEEP = 0.6;
-/** Services need more staff as the city grows: their upkeep doubles for each this many residents. */
-export const STAFFING_POPULATION = 10_000;
 /** Tax rate in percent: the starting rate and the range the slider allows. */
 export const DEFAULT_TAX = 9;
 export const MIN_TAX = 0;
@@ -66,7 +52,7 @@ export const UPGRADE_RATE = 0.22;
 /** Below this demand buildings start to shrink, each with this chance when looked at. */
 export const DECLINE_DEMAND = -0.3;
 export const DECLINE_RATE = 0.12;
-/** Days without road, power or water after which a building is abandoned and cleared. */
+/** Days without a road after which a building is abandoned and cleared. One without power or water stands empty instead. */
 export const ABANDON_DAYS = 20;
 
 /** Share of residents who work, split between shops and industry. */
@@ -86,6 +72,16 @@ export const LAND_GATES = [0, -0.3, 0.15, 0.4, 0.6, 0.85] as const;
 export const POPULATION_GATES = [0, 0, 120, 600, 2500, 8000] as const;
 /** City population needed before industry of each level appears. */
 export const INDUSTRY_GATES = [0, 0, 400, 2500] as const;
+
+/** Sizes a city is congratulated on reaching, smallest first: the residents needed and what the place is then called. */
+export const MILESTONES = [
+  { population: 100, name: 'Hamlet' },
+  { population: 500, name: 'Village' },
+  { population: 1500, name: 'Town' },
+  { population: 4000, name: 'Big town' },
+  { population: 8000, name: 'City' },
+  { population: 15000, name: 'Metropolis' },
+] as const;
 
 // --- Pollution -----------------------------------------------------------------
 

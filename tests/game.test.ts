@@ -1,20 +1,24 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { BALANCE } from '../src/game/balance.ts';
 import { applyTool, planTool, TOOLS } from '../src/game/actions.ts';
 import { BOX, CONE, PALETTE, buildingBlueprint, roadBlueprint, treeBlueprint, type Blueprint } from '../src/game/blueprints.ts';
 import {
   AVENUE, CLINIC, DIR_COUNT, FIRE, FLAG_ACCESS, GRASS, NONE, PARK, PLANT, POLICE, ROAD, SCHOOL, TOWER, WATER, WIND, ZONE_C, ZONE_I, ZONE_NONE, ZONE_R,
   hasBuilding, tileIndex, type City,
 } from '../src/game/city.ts';
-import { bricksNeeded, congestion, derive, desirability, isComplete, staffing, trafficNoise } from '../src/game/derive.ts';
-import { advice, dateLabel, tileInfo } from '../src/game/info.ts';
+import { bricksNeeded, congestion, derive, desirability, isComplete, isOccupied, staffing, trafficNoise } from '../src/game/derive.ts';
+import { MISSING_POWER, MISSING_WATER, advice, dateLabel, tileInfo } from '../src/game/info.ts';
 import { loadCity, saveCity } from '../src/game/save.ts';
 import { SERVICES } from '../src/game/services.ts';
 import { newCity, tick } from '../src/game/sim.ts';
 import { activeVehicles, createTraffic, findRoute, stepTraffic } from '../src/game/traffic.ts';
-import { AVENUE_CAPACITY, AVENUE_COST, BRIDGE_COST, DAYS_PER_MONTH, ROAD_CAPACITY, STAFFING_POPULATION, WORKFORCE_SHARE, MAP_SIZE, MAX_TAX, ROAD_COST, START_MONEY, TILE_STUDS } from '../src/game/tuning.ts';
+import { AVENUE_CAPACITY, DAYS_PER_MONTH, ROAD_CAPACITY, WORKFORCE_SHARE, MAP_SIZE, MAX_TAX, TILE_STUDS } from '../src/game/tuning.ts';
 import { ZONE_SPECS, maxLevel } from '../src/game/zones.ts';
+import { HOURS_PER_DAY, NOON, clockLabel, daylightAt } from '../src/world/daylight.ts';
+import { missingNeeds } from '../src/world/need-icons.ts';
 
+const { startMoney: START_MONEY, roadCost: ROAD_COST, bridgeCost: BRIDGE_COST, avenueCost: AVENUE_COST, staffingPopulation: STAFFING_POPULATION } = BALANCE;
 const SEED = 7;
 const VARIANTS_CHECKED = 32;
 const TREE_LOOKS = 4;
@@ -184,6 +188,16 @@ test('nothing is built without the money for all of it', () => {
   assert.equal(city.money, 3 * ROAD_COST);
 });
 
+test('a city in debt can still bulldoze, and nothing else', () => {
+  const city = meadow();
+  applyTool(city, 'school', 0, 0, 5, 5);
+  city.money = -500;
+  assert.equal(planTool(city, 'road', 0, 0, 3, 0).reason, 'Not enough money');
+  assert.ok(applyTool(city, 'bulldoze', 5, 5, 5, 5).ok);
+  assert.equal(city.structure[tileIndex(city, 5, 5)], NONE);
+  assert.equal(city.money, -500 - BALANCE.bulldozeCost);
+});
+
 test('a service cannot be placed on water or on top of something, and says why', () => {
   const city = meadow();
   city.terrain[tileIndex(city, 2, 2)] = WATER;
@@ -222,26 +236,64 @@ test('lots within two tiles of a road are reached and face it', () => {
   assert.equal(city.roadOf[far], tileIndex(city, 12, 10));
 });
 
-test('nothing grows without a road, or without power and water', () => {
-  const total = (city: City) => city.level.reduce((sum, level) => sum + level, 0);
+test('nothing grows without a road', () => {
   const noRoad = meadow();
   applyTool(noRoad, 'homes', 10, 10, 14, 14);
   applyTool(noRoad, 'wind', 0, 0, 20, 20);
   applyTool(noRoad, 'tower', 0, 0, 21, 20);
   run(noRoad, 3 * DAYS_PER_MONTH);
-  assert.equal(total(noRoad), 0);
+  assert.equal(noRoad.level.reduce((sum, level) => sum + level, 0), 0);
   assert.equal(tileInfo(noRoad, tileIndex(noRoad, 12, 12)).lines[0], 'Waiting for a road within two tiles');
+});
 
-  const noPower = meadow();
-  applyTool(noPower, 'road', 10, 10, 20, 10);
-  applyTool(noPower, 'homes', 10, 11, 20, 12);
-  run(noPower, 3 * DAYS_PER_MONTH);
-  assert.equal(total(noPower), 0);
-  assert.equal(tileInfo(noPower, tileIndex(noPower, 12, 11)).lines[0], 'Waiting for spare power');
-  applyTool(noPower, 'wind', 0, 0, 9, 10);
-  run(noPower, DAYS_PER_MONTH);
-  assert.equal(total(noPower), 0);
-  assert.equal(tileInfo(noPower, tileIndex(noPower, 12, 11)).lines[0], 'Waiting for spare water');
+test('homes are built before power and water arrive, and stand empty and marked until both do', () => {
+  const city = meadow();
+  applyTool(city, 'road', 10, 10, 20, 10);
+  applyTool(city, 'homes', 10, 11, 20, 12);
+  run(city, 3 * DAYS_PER_MONTH);
+  const finished = () => { const found: number[] = []; city.level.forEach((level, i) => { if (level > 0 && isComplete(city, i)) found.push(i); }); return found; };
+  const homes = finished();
+  assert.ok(homes.length > 0, 'houses went up with no utilities');
+  assert.equal(city.stats.population, 0, 'nobody lives in them');
+  assert.equal(city.stats.income, 0, 'and they pay nothing');
+  assert.equal(city.stats.withoutPower, homes.length);
+  assert.equal(city.stats.withoutWater, homes.length);
+  assert.deepEqual(missingNeeds(city, homes[0]), ['power', 'water']);
+  assert.ok(homes.every(i => city.level[i] === 1), 'an empty house does not grow');
+  const lines = tileInfo(city, homes[0]).lines;
+  assert.match(lines[0], /^Standing empty/);
+  assert.ok(lines.some(line => line.startsWith(MISSING_POWER)) && lines.some(line => line.startsWith(MISSING_WATER)));
+  assert.match(advice(city), /stand empty without power/);
+
+  // Empty houses wait as long as it takes: nothing is cleared for want of power or water.
+  run(city, 12 * DAYS_PER_MONTH);
+  assert.ok(finished().length >= homes.length);
+
+  applyTool(city, 'wind', 0, 0, 9, 10);
+  run(city, DAYS_PER_MONTH);
+  assert.equal(city.stats.withoutPower, 0);
+  assert.ok(city.stats.withoutWater > 0);
+  assert.deepEqual(missingNeeds(city, homes[0]), ['water']);
+  assert.equal(city.stats.population, 0, 'power alone is not enough');
+
+  applyTool(city, 'tower', 0, 0, 9, 11);
+  run(city, DAYS_PER_MONTH);
+  assert.equal(city.stats.withoutWater, 0);
+  assert.deepEqual(missingNeeds(city, homes[0]), []);
+  assert.ok(city.stats.population > 0 && city.stats.income > 0, 'people move in and pay tax');
+});
+
+test('when supply runs short only the buildings left out stand empty', () => {
+  const city = town();
+  run(city, 12 * DAYS_PER_MONTH);
+  // Power is shared out in map order, so some of the town keeps it and the rest goes dark.
+  const lived = () => city.stats.population + city.stats.commercialJobs + city.stats.industrialJobs;
+  const before = lived(), income = city.stats.income;
+  applyTool(city, 'bulldoze', 9, 19, 9, 19);
+  assert.ok(city.stats.powerUse > city.stats.powerSupply, `${city.stats.powerUse} of ${city.stats.powerSupply}`);
+  assert.ok(city.stats.withoutPower > 0);
+  assert.ok(lived() > 0 && lived() < before, `${lived()} from ${before}`);
+  assert.ok(city.stats.income < income, 'the dark buildings pay nothing');
 });
 
 test('a town with roads, zones, power and water grows, brick by brick, and pays its way', () => {
@@ -307,16 +359,67 @@ test('pollution from industry lowers the land value homes feel next to it', () =
   assert.ok(city.pollution[besideIndustry] > city.pollution[farAway]);
 });
 
-test('a town that loses its power is abandoned', () => {
+test('a new building never takes power or water from one that is lived in', () => {
+  const city = meadow();
+  applyTool(city, 'road', 10, 20, 30, 20);
+  // Homes south of the road come later in map order than the lots zoned north of it afterwards.
+  applyTool(city, 'homes', 10, 21, 30, 22);
+  applyTool(city, 'wind', 0, 0, 9, 21);
+  applyTool(city, 'tower', 0, 0, 9, 22);
+  run(city, 4 * DAYS_PER_MONTH);
+  const lived: number[] = [];
+  city.level.forEach((level, i) => { if (level > 0 && isOccupied(city, i)) lived.push(i); });
+  assert.ok(lived.length > 0);
+  const supply = city.stats.powerSupply;
+  applyTool(city, 'shops', 10, 16, 30, 19);
+  applyTool(city, 'industry', 10, 12, 30, 15);
+  run(city, 8 * DAYS_PER_MONTH);
+  assert.equal(city.stats.powerSupply, supply);
+  assert.ok(city.stats.withoutPower > 0, 'the newcomers outran the turbine');
+  assert.ok(lived.every(i => city.level[i] === 0 || !isComplete(city, i) || isOccupied(city, i)), 'everyone who had power kept it');
+  assert.ok(city.stats.population > 0);
+  // The same holds across a save: who is connected is remembered.
+  const loaded = loadCity(saveCity(city))!;
+  assert.equal(loaded.stats.population, city.stats.population);
+  assert.deepEqual(Array.from(loaded.flags), Array.from(city.flags));
+});
+
+test('a save written before connections were remembered still loads', () => {
   const city = town();
   run(city, 6 * DAYS_PER_MONTH);
-  assert.ok(city.stats.population > 0);
+  const old = JSON.parse(saveCity(city)) as Record<string, unknown>;
+  delete old.served; delete old.milestone;
+  const loaded = loadCity(JSON.stringify(old));
+  assert.ok(loaded, 'the old save is accepted');
+  assert.equal(loaded!.stats.population, city.stats.population);
+});
+
+test('a town that loses its power empties but is not cleared, and fills again when the power is back', () => {
+  const city = town();
+  run(city, 6 * DAYS_PER_MONTH);
+  const before = city.stats.population, buildings = city.level.filter(level => level > 0).length;
+  assert.ok(before > 0);
   applyTool(city, 'bulldoze', 9, 19, 9, 21);
   assert.equal(city.stats.powerSupply, 0);
   assert.ok(city.stats.withoutPower > 0);
+  assert.equal(city.stats.population, 0);
+  assert.equal(city.stats.income, 0);
   run(city, 2 * DAYS_PER_MONTH);
   assert.equal(city.stats.population, 0);
-  assert.ok(city.zone.some(zone => zone === ZONE_R), 'the zoning is still there');
+  assert.ok(city.level.filter(level => level > 0).length >= buildings, 'the buildings are still standing');
+  applyTool(city, 'wind', 0, 0, 9, 21);
+  applyTool(city, 'wind', 0, 0, 9, 19);
+  run(city, DAYS_PER_MONTH);
+  assert.ok(city.stats.population >= before, `${city.stats.population} from ${before}`);
+});
+
+test('a building that loses its road is still abandoned', () => {
+  const city = town();
+  run(city, 6 * DAYS_PER_MONTH);
+  assert.ok(city.level.some(level => level > 0));
+  applyTool(city, 'bulldoze', 10, 20, 30, 20);
+  run(city, 2 * DAYS_PER_MONTH);
+  assert.ok(!city.level.some(level => level > 0), 'everything zoned has been cleared');
 });
 
 test('high taxes turn demand negative and the town shrinks', () => {
@@ -484,4 +587,44 @@ test('services cost more to run as the city grows', () => {
   const roads = (city: City) => city.stats.expenses - services * staffing(city);
   assert.ok(Math.abs(roads(large) - roads(small)) < EPSILON, 'road upkeep does not depend on population');
   assert.ok(large.stats.expenses > small.stats.expenses);
+});
+
+// --- Daylight --------------------------------------------------------------------
+
+test('the sun is high at noon, a moon is up at midnight, and windows light at night', () => {
+  const noon = daylightAt(NOON), midnight = daylightAt(0);
+  assert.equal(noon.day, 1);
+  assert.equal(noon.sun, 1);
+  assert.equal(noon.moon, 0);
+  assert.equal(noon.windows, 0);
+  assert.ok(noon.toLight[1] > 0.7, 'the noon sun is high');
+  assert.equal(midnight.day, 0);
+  assert.equal(midnight.sun, 0);
+  assert.equal(midnight.moon, 1);
+  assert.equal(midnight.windows, 1);
+  assert.ok(midnight.toLight[1] > 0.3, 'the moon is above the horizon');
+  assert.ok(daylightAt(6.5).twilight > 0.5 && daylightAt(18).twilight > 0.9, 'dawn and dusk are coloured');
+  assert.equal(noon.twilight, 0);
+  assert.deepEqual(daylightAt(HOURS_PER_DAY + 3), daylightAt(3));
+  assert.equal(clockLabel(7.5), '07:30');
+  assert.equal(clockLabel(23.99), '23:50');
+});
+
+test('light never jumps: whatever is lit changes smoothly round the whole day', () => {
+  const STEP = 1 / 60, MAX_CHANGE = 0.08;
+  let before = daylightAt(0);
+  for (let hour = STEP; hour <= HOURS_PER_DAY; hour += STEP) {
+    const now = daylightAt(hour);
+    assert.ok(Math.hypot(...now.toLight) > 0.999 && Math.hypot(...now.toLight) < 1.001, 'the direction is a unit vector');
+    assert.ok(now.toLight[1] > 0.1, `the light is above the horizon at ${hour}`);
+    assert.ok(now.sun === 0 || now.moon === 0, `sun and moon are never both lit, at ${hour}`);
+    for (const key of ['day', 'twilight', 'sun', 'moon', 'windows'] as const) {
+      assert.ok(Math.abs(now[key] - before[key]) < MAX_CHANGE, `${key} jumps at ${hour}`);
+    }
+    // While a light is on, it does not jump across the sky.
+    const strength = Math.min(before.sun + before.moon, now.sun + now.moon);
+    const moved = Math.hypot(now.toLight[0] - before.toLight[0], now.toLight[1] - before.toLight[1], now.toLight[2] - before.toLight[2]);
+    assert.ok(moved * strength < MAX_CHANGE, `the light jumps at ${hour}`);
+    before = now;
+  }
 });

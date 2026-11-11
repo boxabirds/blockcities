@@ -6,7 +6,8 @@
 import * as THREE from 'three/webgpu';
 import { TOOLS, applyTool, planTool, type Plan, type Tool } from '../game/actions.ts';
 import { isRoad, tileIndex, type City, type Stats } from '../game/city.ts';
-import { tileInfo, type TileInfo } from '../game/info.ts';
+import { Advisor, type Message } from '../game/advisor.ts';
+import { advice, tileInfo, type TileInfo } from '../game/info.ts';
 import { loadCity, saveCity } from '../game/save.ts';
 import { newCity, tick } from '../game/sim.ts';
 import { activeVehicles, createTraffic, stepTraffic } from '../game/traffic.ts';
@@ -18,11 +19,17 @@ import { createRenderer, resizeView } from '../render/renderer.ts';
 import { disposeBrickGeometries } from '../world/brick-set.ts';
 import { CameraRig, type View } from '../world/camera-rig.ts';
 import { CityView } from '../world/city-view.ts';
+import { HOURS_PER_DAY, NOON } from '../world/daylight.ts';
 import { AMBIENT, Sky } from '../world/sky.ts';
 import { Hud } from './hud.ts';
 import { Input, type Tile } from './input.ts';
 
 const SAVE_KEY = 'blockcities.city.v1';
+const DAYLIGHT_KEY = 'blockcities.daylight.v1';
+const CHAT_KEY = 'blockcities.chat.v1';
+/** Seconds of play for the sun to go once round, and the hour a session opens at. With the cycle off it is always noon. */
+const DAY_CYCLE_SECONDS = 240;
+const OPENING_HOUR = 9;
 const MILLISECONDS = 1000;
 /** A frame longer than this is treated as this long, so a hitch does not fling the camera or the cars. */
 const MAX_FRAME_SECONDS = 0.1;
@@ -34,8 +41,16 @@ export type Game = { stop: () => void };
 /** State exposed for automated checks; mirrors what the interface shows. */
 export type DebugSnapshot = {
   day: number; money: number; tax: number; speed: number; tool: Tool; frames: number;
+  /** Whether the day and night cycle is on, and the hour of the day being shown (noon when it is off). */
+  daylight: boolean; hour: number;
   stats: Stats; vehicles: number; roads: number; buildings: number;
   hover: Tile | null; inspector: TileInfo | null; advice: string; toast: string;
+  /** Milestones reached, and the name of the last one celebrated on screen ('' when none has been). */
+  milestone: number; celebrated: string;
+  /** The planner's chat: whether it is open and what has been said, oldest first. */
+  chat: { open: boolean; messages: Message[] };
+  /** Flashing marks drawn over empty buildings in the last frame. */
+  marks: { power: number; water: number };
 };
 declare global {
   interface Window {
@@ -56,9 +71,17 @@ declare global {
       tile: (x: number, z: number) => TileInfo;
       /** Places the camera; any field left out keeps its value. x and z are in tiles. */
       look: (view: Partial<View>) => void;
+      /** The view the camera is heading for, in world units and radians. */
+      view: () => View;
       /** Where the middle of a tile is on screen, in client pixels: for driving the real mouse to it. */
       screenOf: (x: number, z: number) => { x: number; y: number };
       save: () => void;
+      /** Turns the day and night cycle on or off: the same as its button. */
+      daylight: (on: boolean) => void;
+      /** Opens or closes the planner's chat: the same as its bubble. */
+      chat: (open: boolean) => void;
+      /** Sets the hour of the day (0 to 24), for looking at a particular light. */
+      hour: (hour: number) => void;
     };
   }
 }
@@ -79,19 +102,45 @@ export async function startGame(stage: (message: string) => void, fail: (reason:
   stage('Loading the light');
   const scene = new THREE.Scene();
   const environment = await loadEnvironment(renderer, scene, AMBIENT);
-  const sky = new Sky(scene, renderer, environment.toLight);
+  const sky = new Sky(scene, renderer);
 
   stage('Tipping out the bricks');
   let city = restore() ?? newCity(Math.floor(Math.random() * SEED_RANGE));
   let traffic = createTraffic(city.size * city.size, TRAFFIC_SEED);
   const materials = createBrickMaterials();
-  const view = new CityView(materials);
+  const view = new CityView(materials, city.size * city.size);
   scene.add(view.group);
   const rig = new CameraRig(MAP_SIZE * TILE_STUDS / 2);
   const composite = createComposite(renderer, scene, rig.camera);
 
   let speed: number = DEFAULT_SPEED, dayDebt = 0, frames = 0, seconds = 0, lastSaveDay = city.day, lastToast = '';
   let plan: Plan | null = null, info: TileInfo | null = null;
+  let daylight = true, hour = OPENING_HOUR;
+  try { daylight = localStorage.getItem(DAYLIGHT_KEY) !== 'off'; } catch { /* no storage: keep the default */ }
+  const setDaylight = (on: boolean) => {
+    daylight = on;
+    try { localStorage.setItem(DAYLIGHT_KEY, on ? 'on' : 'off'); } catch { /* not remembered, still applied */ }
+  };
+  const advisor = new Advisor();
+  let chatOpen = true, celebrated = '';
+  // The planner is open the first time, so the guide is seen; after that it stays how the mayor left it.
+  try { chatOpen = localStorage.getItem(CHAT_KEY) !== 'closed'; } catch { /* no storage: keep the default */ }
+  const setChat = (open: boolean) => {
+    chatOpen = open; hud.setChat(open);
+    try { localStorage.setItem(CHAT_KEY, open ? 'open' : 'closed'); } catch { /* not remembered, still applied */ }
+  };
+  /** Lets the planner look at the city, and shows whatever it has to say. Runs after every change, by mouse, clock or hook. */
+  const consult = () => {
+    const fresh = advisor.update(city);
+    if (fresh.length === 0 && !advisor.messages.some(message => message.done !== shownDone.get(message.id))) return;
+    for (const message of advisor.messages) shownDone.set(message.id, message.done);
+    hud.setMessages(advisor.messages, fresh.length);
+    for (const message of fresh) {
+      if (message.kind !== 'milestone') continue;
+      celebrated = message.title; hud.celebrate(message.title, message.text);
+    }
+  };
+  const shownDone = new Map<string, boolean>();
   const save = () => { try { localStorage.setItem(SAVE_KEY, saveCity(city)); lastSaveDay = city.day; } catch { /* storage full or unavailable: play on */ } };
 
   const hud = new Hud({
@@ -99,6 +148,8 @@ export async function startGame(stage: (message: string) => void, fail: (reason:
     speed: value => setSpeed(value),
     tax: percent => setTax(percent),
     newCity: () => replaceCity(),
+    daylight: () => setDaylight(!daylight),
+    chat: open => setChat(open),
   });
   const toast = (message: string) => { lastToast = message; hud.toast(message); };
   const setSpeed = (value: number) => { speed = Math.max(0, Math.min(SPEED_DAYS_PER_SECOND.length - 1, Math.round(value))); hud.setSpeed(speed); };
@@ -119,7 +170,7 @@ export async function startGame(stage: (message: string) => void, fail: (reason:
     tool => hud.setTool(tool),
     () => setSpeed(speed === 0 ? DEFAULT_SPEED : 0),
   );
-  hud.setTool(input.tool); hud.setSpeed(speed);
+  hud.setTool(input.tool); hud.setSpeed(speed); hud.setChat(chatOpen);
 
   let resizeQueued = 0;
   const resize = () => {
@@ -132,8 +183,10 @@ export async function startGame(stage: (message: string) => void, fail: (reason:
 
   /** Brings everything drawn up to date with the simulation and the pointer. */
   const present = (dt: number) => {
+    consult();
     view.sync(city);
     view.animate(city, traffic, seconds, dt);
+    view.needs.update(city, rig.camera, rig.distance, performance.now() / MILLISECONDS);
     const { hover, anchor, tool } = input;
     if (hover) {
       const from = anchor ?? hover;
@@ -141,8 +194,11 @@ export async function startGame(stage: (message: string) => void, fail: (reason:
       info = tileInfo(city, tileIndex(city, hover.x, hover.z));
     } else { plan = null; info = null; }
     view.showPreview(city, tool, plan);
+    const shown = daylight ? hour : NOON;
+    materials.windowGlow.value = sky.setTime(shown);
     sky.follow(rig.focus, rig.distance);
     hud.update(city, info, plan, tool);
+    hud.setClock(daylight, shown);
   };
 
   stage('Building the first street');
@@ -167,7 +223,10 @@ export async function startGame(stage: (message: string) => void, fail: (reason:
     // Catch-up is capped rather than allowed to spiral after a hitch.
     if (dayDebt > 1) dayDebt = 0;
     if (city.day - lastSaveDay >= AUTOSAVE_DAYS) save();
-    if (speed > 0) { stepTraffic(traffic, city, dt); seconds += dt; }
+    if (speed > 0) {
+      stepTraffic(traffic, city, dt); seconds += dt;
+      if (daylight) hour = (hour + dt * HOURS_PER_DAY / DAY_CYCLE_SECONDS) % HOURS_PER_DAY;
+    }
     present(dt);
     composite.render();
     frames++;
@@ -183,10 +242,13 @@ export async function startGame(stage: (message: string) => void, fail: (reason:
   window.__blockcities = {
     snapshot: () => ({
       day: city.day, money: city.money, tax: city.tax, speed, tool: input.tool, frames,
+      daylight, hour: daylight ? hour : NOON,
       stats: structuredClone(city.stats), vehicles: activeVehicles(traffic),
       roads: city.structure.reduce((count, structure) => count + (isRoad(structure) ? 1 : 0), 0),
       buildings: city.level.reduce((count, level) => count + (level > 0 ? 1 : 0), 0),
-      hover: input.hover, inspector: info, advice: document.querySelector('#advice')!.textContent ?? '', toast: lastToast,
+      hover: input.hover, inspector: info, advice: advice(city), toast: lastToast,
+      milestone: city.milestone, celebrated, chat: { open: chatOpen, messages: structuredClone(advisor.messages) },
+      marks: { ...view.needs.shown },
     }),
     tool: tool => { if (!TOOLS.includes(tool)) throw new Error(`unknown tool ${tool}`); input.select(tool); },
     apply: (tool, x0, z0, x1, z1) => { if (!TOOLS.includes(tool)) throw new Error(`unknown tool ${tool}`); return act(tool, x0, z0, x1, z1); },
@@ -199,11 +261,15 @@ export async function startGame(stage: (message: string) => void, fail: (reason:
       const centre = (tile: number) => (tile + 0.5 - city.size / 2) * TILE_STUDS;
       rig.look({ ...rest, ...(x === undefined ? {} : { x: centre(x) }), ...(z === undefined ? {} : { z: centre(z) }) });
     },
+    view: () => rig.view,
     screenOf: (x, z) => {
       const rect = canvas.getBoundingClientRect(), point = rig.project(view.tileCentre(city, x, z, corner));
       return { x: rect.left + (point.x + 1) / 2 * rect.width, y: rect.top + (1 - point.y) / 2 * rect.height };
     },
     save,
+    daylight: setDaylight,
+    chat: setChat,
+    hour: value => { hour = ((value % HOURS_PER_DAY) + HOURS_PER_DAY) % HOURS_PER_DAY; },
   };
 
   function stop() {

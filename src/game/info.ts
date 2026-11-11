@@ -1,6 +1,6 @@
 /** What a tile is and what it is waiting for, in words. Shown in the inspector and used by the checks. */
 import { AVENUE, FLAG_ACCESS, FLAG_POWER, FLAG_WATER, WATER, ZONE_C, ZONE_I, ZONE_NONE, ZONE_R, isRoad, type City } from './city.ts';
-import { bricksNeeded, congestion, desirability, isComplete, spareSupply, staffing, trafficNoise } from './derive.ts';
+import { bricksNeeded, congestion, desirability, isComplete, isOccupied, spareSupply, staffing, trafficNoise } from './derive.ts';
 import { SERVICES } from './services.ts';
 import { levelAllowed } from './sim.ts';
 import { DAYS_PER_MONTH, INDUSTRY_GATES, LAND_GATES, MONTHS_PER_YEAR, POPULATION_GATES, QUIET_SHARE, TRAFFIC_NOISE_WEIGHT } from './tuning.ts';
@@ -8,8 +8,12 @@ import { ZONE_SPECS, maxLevel } from './zones.ts';
 
 export type TileInfo = { title: string; lines: string[] };
 
+/** What the flashing marks over an empty building mean; the inspector says the same words. */
+export const MISSING_POWER = 'Missing power';
+export const MISSING_WATER = 'Missing water';
+
 const PERCENT = 100;
-/** Spare power and water below which new building has in practice stopped. */
+/** Spare power and water below which buildings have in practice stopped growing. */
 const POWER_HEADROOM = 12;
 const WATER_HEADROOM = 12;
 /** Demand above which the advisor asks for more of a zone. */
@@ -47,20 +51,18 @@ export function tileInfo(city: City, i: number): TileInfo {
   const spec = ZONE_SPECS[zone], level = city.level[i], lines: string[] = [];
   const unit = zone === ZONE_R ? 'residents' : 'jobs';
   if (level === 0) {
-    const spare = spareSupply(city), first = spec.capacity[1];
     if (!(city.flags[i] & FLAG_ACCESS)) lines.push('Waiting for a road within two tiles');
-    else if (spare.power < first * spec.powerPerUnit) lines.push('Waiting for spare power');
-    else if (spare.water < first * spec.waterPerUnit) lines.push('Waiting for spare water');
     else if (!levelAllowed(city, i, 1)) lines.push('Too polluted to build on');
     else if (city.stats.demand[zone] <= 0) lines.push(`Waiting for demand for ${spec.name.toLowerCase()}`);
     else lines.push('Ready: a building will start soon');
   } else if (!isComplete(city, i)) {
     lines.push(`Under construction: ${city.progress[i]} of ${bricksNeeded(city, i)} bricks`);
   } else {
-    lines.push(`${spec.capacity[level]} ${unit} · level ${level} of ${maxLevel(zone)}`);
+    const size = `${spec.capacity[level]} ${unit} · level ${level} of ${maxLevel(zone)}`;
+    lines.push(isOccupied(city, i) ? size : `Standing empty: room for ${size}`);
+    if (!(city.flags[i] & FLAG_POWER)) lines.push(`${MISSING_POWER}: add a turbine or a power station`);
+    if (!(city.flags[i] & FLAG_WATER)) lines.push(`${MISSING_WATER}: add a water tower`);
     if (!(city.flags[i] & FLAG_ACCESS)) lines.push('No road: it will be abandoned');
-    if (!(city.flags[i] & FLAG_POWER)) lines.push('No power: it will be abandoned');
-    if (!(city.flags[i] & FLAG_WATER)) lines.push('No water: it will be abandoned');
     if (level < maxLevel(zone) && !levelAllowed(city, i, level + 1)) {
       const next = level + 1;
       if (zone === ZONE_I) lines.push(`Grows at ${INDUSTRY_GATES[next]} residents in the city`);
@@ -94,14 +96,14 @@ export function advice(city: City): string {
   if (city.money < 0) return 'The city is in debt: raise taxes or bulldoze what it cannot afford.';
   if (roads === 0) return 'Start by laying a road.';
   if (stats.zonedLots === 0) return 'Zone some homes beside the road: lots within two tiles of a road get built on.';
-  if (powerSources === 0) return 'Nothing is built without power: place a wind turbine.';
-  if (waterSources === 0) return 'Nothing is built without water: place a water tower.';
-  if (stats.withoutPower > 0) return `${stats.withoutPower} buildings have no power and will be abandoned: add turbines or a power station.`;
-  if (stats.withoutWater > 0) return `${stats.withoutWater} buildings have no water and will be abandoned: add a water tower.`;
+  if (powerSources === 0) return 'Buildings stand empty without power: place a wind turbine.';
+  if (waterSources === 0) return 'Buildings stand empty without water: place a water tower.';
+  if (stats.withoutPower > 0) return `${stats.withoutPower} buildings stand empty for want of power, and pay no tax: add turbines or a power station.`;
+  if (stats.withoutWater > 0) return `${stats.withoutWater} buildings stand empty for want of water, and pay no tax: add a water tower.`;
   if (stats.withoutRoad > 0) return `${stats.withoutRoad} buildings have lost their road and will be abandoned.`;
   const spare = spareSupply(city);
-  if (readyLots > 0 && spare.power < POWER_HEADROOM) return 'Power is nearly all used, so nothing new is being built: add turbines or a power station.';
-  if (readyLots > 0 && spare.water < WATER_HEADROOM) return 'Water is nearly all used, so nothing new is being built: add a water tower.';
+  if (readyLots > 0 && spare.power < POWER_HEADROOM) return 'Power is nearly all used, so buildings have stopped growing: add turbines or a power station.';
+  if (readyLots > 0 && spare.water < WATER_HEADROOM) return 'Water is nearly all used, so buildings have stopped growing: add a water tower.';
   if (stats.congested > 0) return `${stats.congested} road tiles carry more traffic than they can take: upgrade them to avenues, or put jobs nearer the homes.`;
   for (const zone of [ZONE_R, ZONE_C, ZONE_I]) {
     if (stats.demand[zone] > WANTED_DEMAND && emptyByZone[zone] === 0) return `${ZONE_SPECS[zone].name} are wanted: zone more lots for them near a road.`;

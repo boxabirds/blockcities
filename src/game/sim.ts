@@ -1,12 +1,12 @@
 /** One day in the city: building sites rise, lots fill or empty, the books are balanced. */
 import {
-  FLAG_ACCESS, FLAG_POWER, FLAG_WATER, NONE, ZONE_I, ZONE_NONE, clearBuilding, createCity, hasBuilding, type City,
+  FLAG_ACCESS, NONE, ZONE_I, ZONE_NONE, clearBuilding, createCity, hasBuilding, type City,
 } from './city.ts';
-import { bricksNeeded, derive, desirability, isComplete, spareSupply } from './derive.ts';
+import { bricksNeeded, derive, desirability, isComplete, isOccupied, spareSupply } from './derive.ts';
 import { nextInt, nextRandom } from './rng.ts';
 import { generateTerrain } from './terrain.ts';
 import {
-  ABANDON_DAYS, BRICKS_PER_DAY, DECLINE_DEMAND, DECLINE_RATE, GROWTH_SAMPLE_FRACTION, INDUSTRY_GATES, LAND_GATES, MIN_GROWTH_SAMPLES,
+  ABANDON_DAYS, BRICKS_PER_DAY, DECLINE_DEMAND, DECLINE_RATE, GROWTH_SAMPLE_FRACTION, INDUSTRY_GATES, LAND_GATES, MILESTONES, MIN_GROWTH_SAMPLES,
   POPULATION_GATES, SPAWN_RATE, UPGRADE_RATE,
 } from './tuning.ts';
 import { ZONE_SPECS, maxLevel } from './zones.ts';
@@ -44,9 +44,9 @@ function raise(city: City) {
     const needed = bricksNeeded(city, i);
     if (city.progress[i] < needed) { city.progress[i] = Math.min(needed, city.progress[i] + BRICKS_PER_DAY); city.buildRevision++; continue; }
     if (city.structure[i] !== NONE) continue;
-    // A finished home, shop or works that has lost its road, power or water empties after a while.
-    const served = FLAG_ACCESS | FLAG_POWER | FLAG_WATER;
-    if ((city.flags[i] & served) === served) { if (city.distress[i] > 0) city.distress[i]--; continue; }
+    // A finished home, shop or works that has lost its road is cleared after a while. One short of power or water
+    // is not: it stands empty, marked, until the mayor connects it.
+    if (city.flags[i] & FLAG_ACCESS) { if (city.distress[i] > 0) city.distress[i]--; continue; }
     if (++city.distress[i] > ABANDON_DAYS) { clearBuilding(city, i); city.buildRevision++; }
   }
 }
@@ -71,20 +71,36 @@ function grow(city: City) {
     }
     if (demand <= 0 || !(city.flags[i] & FLAG_ACCESS) || !levelAllowed(city, i, level + 1)) continue;
     if (roll >= demand * (level === 0 ? SPAWN_RATE : UPGRADE_RATE)) continue;
-    // Nothing new is connected unless there is power and water to spare for it.
-    const extra = spec.capacity[level + 1] - spec.capacity[level];
-    const power = extra * spec.powerPerUnit, water = extra * spec.waterPerUnit;
-    if (spare.power < power || spare.water < water) continue;
-    spare.power -= power; spare.water -= water;
+    // An empty lot is built on whether or not there is power and water for it yet. A building only grows when it
+    // is lived in and there is enough spare of both for the bigger one.
+    if (level > 0) {
+      if (!isOccupied(city, i)) continue;
+      const extra = spec.capacity[level + 1] - spec.capacity[level];
+      const power = extra * spec.powerPerUnit, water = extra * spec.waterPerUnit;
+      if (spare.power < power || spare.water < water) continue;
+      spare.power -= power; spare.water -= water;
+    }
     build(city, i, level + 1);
   }
 }
 
-export function tick(city: City) {
+/** How many of the milestones a city of `population` has reached. */
+export function milestonesReached(population: number) {
+  let reached = 0;
+  while (reached < MILESTONES.length && population >= MILESTONES[reached].population) reached++;
+  return reached;
+}
+
+/**
+ * One day. With `settle` the derived state (stats, flags, land value) is brought up to date again afterwards,
+ * which the interface wants; a headless run that only ticks can skip it, since the next day starts by deriving.
+ */
+export function tick(city: City, settle = true) {
   derive(city);
+  city.milestone = Math.max(city.milestone, milestonesReached(city.stats.population));
   raise(city);
   grow(city);
   city.money += city.stats.income - city.stats.expenses;
   city.day++;
-  derive(city);
+  if (settle) derive(city);
 }

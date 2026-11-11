@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.ts",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "sim": "node sim/report.ts",
+    "tune": "node sim/tune.ts"
   },
   "dependencies": {
     "three": "^0.185.0"

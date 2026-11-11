@@ -6,6 +6,9 @@
  * or dispersion. Colour comes from each instance.
  */
 import * as THREE from 'three/webgpu';
+import { float, mx_cell_noise_float, positionWorld, step, uniform, vec3 } from 'three/tsl';
+import type Node from 'three/src/nodes/core/Node.js';
+import { BRICK_PLATES, PLATE_HEIGHT, TILE_STUDS } from '../game/tuning.ts';
 
 const PLASTIC_ROUGHNESS = 0.3;
 const PLASTIC_ENV_INTENSITY = 1;
@@ -18,15 +21,37 @@ const GLASS_TRANSMISSION = 0.9;
 const GLASS_THICKNESS = 1;
 const GLASS_ENV_INTENSITY = 1.15;
 
-export type BrickMaterials = { plastic: THREE.Material; glass: THREE.Material; dispose: () => void };
+/** Colour and peak strength of a lit window; above 1 it blooms. */
+const WINDOW_LIGHT = [1, 0.5, 0.14] as const;
+const WINDOW_GLOW = 1.3;
+/** Share of rooms with the light on. */
+const LIT_SHARE = 0.5;
+/** A storey is a brick and the plate between floors. */
+const STOREY_HEIGHT = (BRICK_PLATES + 1) * PLATE_HEIGHT;
+
+export type BrickMaterials = {
+  plastic: THREE.Material;
+  /** Glass that never glows: water, previews. */
+  glass: THREE.Material;
+  /** Glass in buildings: glows at night, one room in a few left dark. */
+  windowGlass: THREE.Material;
+  /** 0 by day to 1 at night. */
+  windowGlow: { value: number };
+  dispose: () => void;
+};
 
 export function createBrickMaterials(): BrickMaterials {
   const plastic = new THREE.MeshPhysicalNodeMaterial({
     color: 0xffffff, roughness: PLASTIC_ROUGHNESS, metalness: 0, envMapIntensity: PLASTIC_ENV_INTENSITY,
   });
-  const glass = new THREE.MeshPhysicalNodeMaterial({
+  const makeGlass = () => new THREE.MeshPhysicalNodeMaterial({
     color: 0xffffff, roughness: GLASS_ROUGHNESS, metalness: 0, transmission: GLASS_TRANSMISSION, ior: GLASS_IOR,
     thickness: GLASS_THICKNESS, envMapIntensity: GLASS_ENV_INTENSITY, transparent: false, side: THREE.FrontSide,
   });
-  return { plastic, glass, dispose: () => { plastic.dispose(); glass.dispose(); } };
+  const glass = makeGlass(), windowGlass = makeGlass(), windowGlow = uniform(0);
+  // Every lot is a room wide and every storey a room tall; a hash of which room this is decides whether its light is on.
+  const room = positionWorld.mul(vec3(1 / TILE_STUDS, 1 / STOREY_HEIGHT, 1 / TILE_STUDS)).sub(vec3(0, PLATE_HEIGHT / STOREY_HEIGHT, 0)).floor();
+  const lit = step(mx_cell_noise_float(room), float(LIT_SHARE));
+  windowGlass.emissiveNode = vec3(...WINDOW_LIGHT).mul(lit).mul(windowGlow).mul(WINDOW_GLOW) as unknown as Node<'color'>;
+  return { plastic, glass, windowGlass, windowGlow, dispose: () => { plastic.dispose(); glass.dispose(); windowGlass.dispose(); } };
 }

@@ -1,4 +1,5 @@
 /** What each zone's buildings hold, use and pay, by level. */
+import { BALANCE } from './balance.ts';
 import { ZONE_C, ZONE_I, ZONE_R } from './city.ts';
 
 export type ZoneSpec = {
@@ -10,22 +11,22 @@ export type ZoneSpec = {
   /** Power and water used per resident or job. */
   readonly powerPerUnit: number;
   readonly waterPerUnit: number;
-  /** Money per day per resident or filled job at the default tax rate. */
+  /** Money per day per resident or filled job at the default tax rate. Read from the balance in force. */
   readonly taxPerUnit: number;
 };
 
 const ZONES: ZoneSpec[] = [];
 ZONES[ZONE_R] = {
   name: 'Homes', buildings: ['Empty lot', 'Cottage', 'House', 'Town house', 'Flats', 'Tower block'],
-  capacity: [0, 4, 10, 24, 60, 140], powerPerUnit: 1, waterPerUnit: 1, taxPerUnit: 0.1,
+  capacity: [0, 4, 10, 24, 60, 140], powerPerUnit: 1, waterPerUnit: 1, get taxPerUnit() { return BALANCE.taxPerUnit.homes; },
 };
 ZONES[ZONE_C] = {
   name: 'Shops', buildings: ['Empty lot', 'Corner shop', 'High street shop', 'Offices', 'Glass offices', 'Skyscraper'],
-  capacity: [0, 4, 10, 24, 50, 110], powerPerUnit: 1.5, waterPerUnit: 0.8, taxPerUnit: 0.14,
+  capacity: [0, 4, 10, 24, 50, 110], powerPerUnit: 1.5, waterPerUnit: 0.8, get taxPerUnit() { return BALANCE.taxPerUnit.shops; },
 };
 ZONES[ZONE_I] = {
   name: 'Industry', buildings: ['Empty lot', 'Workshop', 'Factory', 'Works'],
-  capacity: [0, 10, 25, 60], powerPerUnit: 2.5, waterPerUnit: 1.5, taxPerUnit: 0.12,
+  capacity: [0, 10, 25, 60], powerPerUnit: 2.5, waterPerUnit: 1.5, get taxPerUnit() { return BALANCE.taxPerUnit.industry; },
 };
 export const ZONE_SPECS: readonly ZoneSpec[] = ZONES;
 

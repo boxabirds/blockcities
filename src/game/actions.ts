@@ -9,7 +9,7 @@ import {
 } from './city.ts';
 import { derive } from './derive.ts';
 import { SERVICES } from './services.ts';
-import { AVENUE_BRIDGE_COST, AVENUE_COST, BRIDGE_COST, BULLDOZE_COST, ROAD_COST } from './tuning.ts';
+import { BALANCE } from './balance.ts';
 
 /** Looks a service can take (only the park's trees differ), chosen by where it stands. */
 const SERVICE_LOOKS = 8;
@@ -66,14 +66,14 @@ function tilesUnder(city: City, tool: Tool, x0: number, z0: number, x1: number, 
 function costAt(city: City, tool: Tool, i: number): number | string {
   const structure = city.structure[i], water = city.terrain[i] === WATER;
   if (tool === 'road' || tool === 'avenue') {
-    const road = water ? BRIDGE_COST : ROAD_COST, avenue = water ? AVENUE_BRIDGE_COST : AVENUE_COST;
+    const road = water ? BALANCE.bridgeCost : BALANCE.roadCost, avenue = water ? BALANCE.avenueBridgeCost : BALANCE.avenueCost;
     if (structure === AVENUE) return tool === 'avenue' ? 'Already an avenue' : 'Already a road';
     // An avenue over a road is an upgrade: the road already there is paid for.
     if (structure === ROAD) return tool === 'avenue' ? avenue - road : 'Already a road';
     if (structure !== NONE) return 'Something is built here';
     return tool === 'avenue' ? avenue : road;
   }
-  if (tool === 'bulldoze') return structure !== NONE || hasBuilding(city, i) || city.tree[i] ? BULLDOZE_COST : 'Nothing to clear';
+  if (tool === 'bulldoze') return structure !== NONE || hasBuilding(city, i) || city.tree[i] ? BALANCE.bulldozeCost : 'Nothing to clear';
   if (tool === 'dezone') return city.zone[i] !== ZONE_NONE ? 0 : 'Not zoned';
   const zone = TOOL_ZONE[tool];
   if (zone !== undefined) {
@@ -99,7 +99,8 @@ export function planTool(city: City, tool: Tool, x0: number, z0: number, x1: num
   }
   if (tiles.length === 0) return { tiles, changes, cost: 0, ok: false, reason: 'Off the map' };
   if (changed === 0) return { tiles, changes, cost: 0, ok: false, reason };
-  if (cost > city.money) return { tiles, changes, cost, ok: false, reason: 'Not enough money' };
+  // Clearing is always allowed, even in debt: it is the way out of upkeep the city cannot pay.
+  if (cost > city.money && tool !== 'bulldoze') return { tiles, changes, cost, ok: false, reason: 'Not enough money' };
   return { tiles, changes, cost, ok: true, reason: '' };
 }
 

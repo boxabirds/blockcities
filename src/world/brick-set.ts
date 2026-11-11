@@ -116,6 +116,8 @@ export type BrickSetOptions = {
   capacity: number;
   /** Draw bricks at their full size, with no joints showing. */
   seamless?: boolean;
+  /** Glass here is windows, which glow at night. */
+  windows?: boolean;
 };
 
 const position = new THREE.Vector3(), scale = new THREE.Vector3(), quaternion = new THREE.Quaternion(), matrix = new THREE.Matrix4();
@@ -136,7 +138,7 @@ export class BrickSet {
   private batch(shape: number, glass: boolean) {
     const slot = shape + (glass ? SHAPE_COUNT : 0);
     return this.batches[slot] ??= new Batch(
-      this.group, geometryOf(shape), glass ? this.materials.glass : this.materials.plastic, this.options.capacity, this.options.shadows,
+      this.group, geometryOf(shape), glass ? (this.options.windows ? this.materials.windowGlass : this.materials.glass) : this.materials.plastic, this.options.capacity, this.options.shadows,
     );
   }
 

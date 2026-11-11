@@ -1,0 +1,38 @@
+{
+  "startMoney": 19000,
+  "roadCost": 10,
+  "bridgeCost": 55,
+  "avenueCost": 40,
+  "avenueBridgeCost": 190,
+  "bulldozeCost": 3,
+  "roadUpkeep": 0.04,
+  "bridgeUpkeep": 0.2,
+  "avenueUpkeep": 0.14,
+  "avenueBridgeUpkeep": 0.55,
+  "staffingPopulation": 8500,
+  "taxPerUnit": {
+    "homes": 0.095,
+    "shops": 0.13,
+    "industry": 0.115
+  },
+  "serviceCost": {
+    "wind": 600,
+    "plant": 4000,
+    "tower": 800,
+    "park": 300,
+    "school": 1500,
+    "clinic": 1800,
+    "police": 1500,
+    "fire": 1500
+  },
+  "serviceUpkeep": {
+    "wind": 3,
+    "plant": 22,
+    "tower": 4,
+    "park": 2,
+    "school": 12,
+    "clinic": 14,
+    "police": 12,
+    "fire": 12
+  }
+}

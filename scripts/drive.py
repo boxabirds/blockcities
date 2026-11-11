@@ -10,6 +10,7 @@ The script is a semicolon-separated list of steps:
   api:tool/x0/z0/x1/z1 one drag through the automation hook
   click:selector       real mouse click on an interface element
   drag:x0/z0/x1/z1     real mouse drag between two tiles with the tool in hand
+  moddrag:Key/dx/dy    real left drag by dx,dy pixels from the view's centre with a key held
   hover:x/z            move the real mouse over a tile
   down:x/z, up         press and release the real mouse button, to look at a drag half way
   fill:selector=value  set a form control (the tax slider) the way a user would
@@ -96,6 +97,16 @@ def main() -> int:
                 page.mouse.down()
                 page.mouse.move(x1, y1, steps=DRAG_STEPS)
                 page.mouse.up()
+            elif kind == "moddrag":
+                # Modifier/dx/dy: a real left drag from the middle of the view with a key held.
+                size = page.viewport_size
+                x0, y0 = size["width"] / 2, size["height"] / 2
+                page.keyboard.down(parts[0])
+                page.mouse.move(x0, y0)
+                page.mouse.down()
+                page.mouse.move(x0 + float(parts[1]), y0 + float(parts[2]), steps=DRAG_STEPS)
+                page.mouse.up()
+                page.keyboard.up(parts[0])
             elif kind == "hover":
                 x, y = screen_of(page, parts[0], parts[1])
                 page.mouse.move(x, y, steps=DRAG_STEPS)

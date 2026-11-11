@@ -6,6 +6,7 @@
  *   settled    finished buildings (changes when one is finished, replaced or cleared)
  *   sites      buildings part way up (changes most days, but there are few of them)
  *   moving     cars and turbine blades (every frame)
+ *   needs      the flashing marks over buildings with no power or no water (every frame)
  * plus the glass preview of what the tool in hand would do.
  */
 import * as THREE from 'three/webgpu';
@@ -18,6 +19,7 @@ import type { Traffic } from '../game/traffic.ts';
 import { MAX_VEHICLES, PLATE_HEIGHT, TILE_STUDS } from '../game/tuning.ts';
 import type { BrickMaterials } from '../render/brick-materials.ts';
 import { BrickSet } from './brick-set.ts';
+import { NeedIcons } from './need-icons.ts';
 
 /** The baseplate is this many plates thick; water lies this many plates below the grass under a glass sheet. */
 const BASE_PLATES = 3;
@@ -89,6 +91,7 @@ export class CityView {
   private readonly sites: BrickSet;
   private readonly moving: BrickSet;
   private readonly preview: BrickSet;
+  readonly needs: NeedIcons;
   private readonly table: THREE.Mesh;
   /** How many tiles are built on and a checksum of which, to notice a lot gaining or losing its first brick. */
   private built = -1;
@@ -102,11 +105,12 @@ export class CityView {
   /** World x and z of the corner of tile (0, 0). */
   private origin = 0;
 
-  constructor(materials: BrickMaterials) {
+  constructor(materials: BrickMaterials, tiles: number) {
+    this.needs = new NeedIcons(tiles);
     this.baseplate = new BrickSet(materials, { shadows: false, capacity: BASEPLATE_CAPACITY, seamless: true });
     this.fixtures = new BrickSet(materials, { shadows: true, capacity: FIXTURE_CAPACITY });
-    this.settled = new BrickSet(materials, { shadows: true, capacity: BUILDING_CAPACITY });
-    this.sites = new BrickSet(materials, { shadows: true, capacity: FIXTURE_CAPACITY });
+    this.settled = new BrickSet(materials, { shadows: true, capacity: BUILDING_CAPACITY, windows: true });
+    this.sites = new BrickSet(materials, { shadows: true, capacity: FIXTURE_CAPACITY, windows: true });
     this.moving = new BrickSet(materials, { shadows: true, capacity: MOVING_CAPACITY });
     this.preview = new BrickSet(materials, { shadows: false, capacity: PREVIEW_CAPACITY });
     const table = new THREE.Mesh(
@@ -116,7 +120,7 @@ export class CityView {
     table.position.y = -BASE_PLATES * PLATE_HEIGHT;
     table.receiveShadow = true;
     this.table = table;
-    this.group.add(table, this.baseplate.group, this.fixtures.group, this.settled.group, this.sites.group, this.moving.group, this.preview.group);
+    this.group.add(table, this.baseplate.group, this.fixtures.group, this.settled.group, this.sites.group, this.moving.group, this.preview.group, this.needs.group);
   }
 
   /** World position of the middle of a tile, on the ground. */
@@ -280,6 +284,7 @@ export class CityView {
 
   dispose() {
     for (const set of [this.baseplate, this.fixtures, this.settled, this.sites, this.moving, this.preview]) set.dispose();
+    this.needs.dispose();
     this.table.geometry.dispose(); (this.table.material as THREE.Material).dispose();
   }
 }

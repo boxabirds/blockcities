@@ -7,12 +7,13 @@ import {
   AVENUE, DIR_COUNT, DIR_X, DIR_Z, FLAG_ACCESS, FLAG_POWER, FLAG_WATER, NO_FACING, NONE, STRUCTURE_COUNT, WATER, ZONE_C, ZONE_I,
   ZONE_NONE, ZONE_R, hasBuilding, isRoad, type City,
 } from './city.ts';
+import { BALANCE } from './balance.ts';
 import { buildingBlueprint } from './blueprints.ts';
 import { SERVICES } from './services.ts';
 import {
-  AVENUE_BRIDGE_UPKEEP, AVENUE_CAPACITY, AVENUE_UPKEEP, BRIDGE_UPKEEP, COMMERCIAL_JOBS_PER_RESIDENT, DEFAULT_TAX, DEMAND_SCALE_SHARE, INDUSTRIAL_JOBS_PER_RESIDENT, INDUSTRY_POLLUTION,
-  INDUSTRY_POLLUTION_RADIUS, MIN_DEMAND_SCALE, NEWCOMER_SHARE, POLLUTION_WEIGHT, QUIET_SHARE, ROAD_CAPACITY, ROAD_REACH, ROAD_UPKEEP,
-  STAFFING_POPULATION, STARTER_HOMES, TAX_DEMAND_PER_POINT, TRAFFIC_NOISE_WEIGHT, WORKFORCE_SHARE,
+  AVENUE_CAPACITY, COMMERCIAL_JOBS_PER_RESIDENT, DEFAULT_TAX, DEMAND_SCALE_SHARE, INDUSTRIAL_JOBS_PER_RESIDENT, INDUSTRY_POLLUTION,
+  INDUSTRY_POLLUTION_RADIUS, MIN_DEMAND_SCALE, NEWCOMER_SHARE, POLLUTION_WEIGHT, QUIET_SHARE, ROAD_CAPACITY, ROAD_REACH,
+  STARTER_HOMES, TAX_DEMAND_PER_POINT, TRAFFIC_NOISE_WEIGHT, WORKFORCE_SHARE,
 } from './tuning.ts';
 import { ZONE_SPECS } from './zones.ts';
 
@@ -24,6 +25,12 @@ export function bricksNeeded(city: City, i: number) {
 
 export function isComplete(city: City, i: number) {
   return hasBuilding(city, i) && city.progress[i] >= bricksNeeded(city, i);
+}
+
+/** A finished home, shop or works with power and water: people live or work in it. Without either it stands empty. */
+export function isOccupied(city: City, i: number) {
+  const connected = FLAG_POWER | FLAG_WATER;
+  return city.structure[i] === NONE && city.zone[i] !== ZONE_NONE && (city.flags[i] & connected) === connected && isComplete(city, i);
 }
 
 /** Residents or jobs of the zoned building on a tile, finished or not. */
@@ -49,7 +56,7 @@ export function desirability(city: City, i: number, zone: number) {
 }
 
 /** What services cost to run, as a multiple of their listed upkeep: more staff for more residents. */
-export function staffing(city: City) { return 1 + city.stats.population / STAFFING_POPULATION; }
+export function staffing(city: City) { return 1 + city.stats.population / BALANCE.staffingPopulation; }
 
 let queue = new Int32Array(0);
 let distance = new Uint8Array(0);
@@ -95,7 +102,7 @@ function surveyTraffic(city: City) {
   let head = 0, tail = 0;
   for (let i = 0; i < tiles; i++) {
     const road = roadOf[i];
-    if (road < 0 || structure[i] !== NONE || (zone[i] !== ZONE_C && zone[i] !== ZONE_I) || toward[road] !== UNSEEN || !isComplete(city, i)) continue;
+    if (road < 0 || (zone[i] !== ZONE_C && zone[i] !== ZONE_I) || toward[road] !== UNSEEN || !isOccupied(city, i)) continue;
     toward[road] = JOBS_HERE; queue[tail++] = road;
   }
   while (head < tail) {
@@ -110,7 +117,7 @@ function surveyTraffic(city: City) {
   }
   for (let i = 0; i < tiles; i++) {
     const road = roadOf[i];
-    if (road < 0 || structure[i] !== NONE || zone[i] !== ZONE_R || toward[road] === UNSEEN || !isComplete(city, i)) continue;
+    if (road < 0 || zone[i] !== ZONE_R || toward[road] === UNSEEN || !isOccupied(city, i)) continue;
     traffic[road] += capacityOf(city, i) * WORKFORCE_SHARE;
   }
   // The queue is in order of distance from the jobs, so walking it backwards meets every tile after all that feed it.
@@ -152,7 +159,7 @@ function surveyLand(city: City) {
     if (valued) for (let i = 0; i < tiles; i++) landValue[i] += best[i];
   }
   for (let i = 0; i < tiles; i++) {
-    if (city.zone[i] !== ZONE_I || structure[i] !== NONE || !isComplete(city, i)) continue;
+    if (city.zone[i] !== ZONE_I || !isOccupied(city, i)) continue;
     const x = i % size, z = (i - x) / size;
     spread(city, x, z, INDUSTRY_POLLUTION[city.level[i]], INDUSTRY_POLLUTION_RADIUS, pollution, false);
   }
@@ -160,46 +167,68 @@ function surveyLand(city: City) {
 
 const clampDemand = (value: number) => Math.max(-1, Math.min(1, value));
 
+/**
+ * Shares out power and water among finished buildings until each runs out: first to those that had it last time, so
+ * a new building never takes the lights from one that is lived in, then to the rest, each group in map order. Sets
+ * the power and water flags, which the surveys after this read to tell an occupied building from an empty one.
+ */
+function supplyUtilities(city: City) {
+  const { size, structure, zone, flags, stats } = city, tiles = size * size;
+  let powerSupply = 0, waterSupply = 0;
+  for (let i = 0; i < tiles; i++) {
+    const service = SERVICES[structure[i]];
+    if (service && isComplete(city, i)) { powerSupply += service.power; waterSupply += service.water; }
+  }
+  let powerLeft = powerSupply, waterLeft = waterSupply, powerUse = 0, waterUse = 0, withoutPower = 0, withoutWater = 0;
+  const { served } = city;
+  for (const existing of [true, false]) {
+    for (let i = 0; i < tiles; i++) {
+      if (structure[i] !== NONE || zone[i] === ZONE_NONE || !isComplete(city, i)) continue;
+      const spec = ZONE_SPECS[zone[i]], capacity = spec.capacity[city.level[i]];
+      const power = capacity * spec.powerPerUnit, water = capacity * spec.waterPerUnit;
+      if (existing) { powerUse += power; waterUse += water; }
+      if (((served[i] & FLAG_POWER) !== 0) === existing) { if (powerLeft >= power) { powerLeft -= power; flags[i] |= FLAG_POWER; } else withoutPower++; }
+      if (((served[i] & FLAG_WATER) !== 0) === existing) { if (waterLeft >= water) { waterLeft -= water; flags[i] |= FLAG_WATER; } else withoutWater++; }
+    }
+  }
+  for (let i = 0; i < tiles; i++) served[i] = flags[i] & (FLAG_POWER | FLAG_WATER);
+  stats.powerSupply = powerSupply; stats.powerUse = powerUse; stats.waterSupply = waterSupply; stats.waterUse = waterUse;
+  stats.withoutPower = withoutPower; stats.withoutWater = withoutWater;
+}
+
 function countAndSupply(city: City) {
   const { size, structure, zone, flags, stats } = city, tiles = size * size;
-  let powerSupply = 0, waterSupply = 0, roadUpkeep = 0, serviceUpkeep = 0, zonedLots = 0, congested = 0;
+  let roadUpkeep = 0, serviceUpkeep = 0, zonedLots = 0, congested = 0;
   for (let i = 0; i < tiles; i++) {
     const kind = structure[i];
     if (isRoad(kind)) {
       const bridge = city.terrain[i] === WATER;
-      roadUpkeep += kind === AVENUE ? (bridge ? AVENUE_BRIDGE_UPKEEP : AVENUE_UPKEEP) : (bridge ? BRIDGE_UPKEEP : ROAD_UPKEEP);
+      roadUpkeep += kind === AVENUE ? (bridge ? BALANCE.avenueBridgeUpkeep : BALANCE.avenueUpkeep) : (bridge ? BALANCE.bridgeUpkeep : BALANCE.roadUpkeep);
       if (congestion(city, i) > 1) congested++;
       continue;
     }
     const service = SERVICES[kind];
-    if (service) {
-      serviceUpkeep += service.upkeep;
-      if (isComplete(city, i)) { powerSupply += service.power; waterSupply += service.water; }
-    } else if (zone[i] !== ZONE_NONE) zonedLots++;
+    if (service) serviceUpkeep += service.upkeep;
+    else if (zone[i] !== ZONE_NONE) zonedLots++;
   }
-  // Power and water go to buildings in map order until they run out.
-  let powerLeft = powerSupply, waterLeft = waterSupply, powerUse = 0, waterUse = 0;
   let population = 0, commercialJobs = 0, industrialJobs = 0;
   let plannedHomes = 0, plannedShops = 0, plannedIndustry = 0;
-  let withoutRoad = 0, withoutPower = 0, withoutWater = 0;
+  let withoutRoad = 0;
   for (let i = 0; i < tiles; i++) {
     if (structure[i] !== NONE || zone[i] === ZONE_NONE || city.level[i] === 0) continue;
     const spec = ZONE_SPECS[zone[i]], capacity = spec.capacity[city.level[i]];
     if (zone[i] === ZONE_R) plannedHomes += capacity; else if (zone[i] === ZONE_C) plannedShops += capacity; else plannedIndustry += capacity;
     if (!isComplete(city, i)) continue;
-    const power = capacity * spec.powerPerUnit, water = capacity * spec.waterPerUnit;
-    powerUse += power; waterUse += water;
-    if (powerLeft >= power) { powerLeft -= power; flags[i] |= FLAG_POWER; } else withoutPower++;
-    if (waterLeft >= water) { waterLeft -= water; flags[i] |= FLAG_WATER; } else withoutWater++;
     if (!(flags[i] & FLAG_ACCESS)) withoutRoad++;
+    // Nobody moves into, or works in, a building with no power or no water: it counts for nothing until it has both.
+    if (!isOccupied(city, i)) continue;
     if (zone[i] === ZONE_R) population += capacity; else if (zone[i] === ZONE_C) commercialJobs += capacity; else industrialJobs += capacity;
   }
   const jobs = commercialJobs + industrialJobs, workers = population * WORKFORCE_SHARE;
   const employed = jobs > 0 ? Math.min(1, workers / jobs) : 0;
   const taxScale = city.tax / DEFAULT_TAX;
   stats.population = population; stats.commercialJobs = commercialJobs; stats.industrialJobs = industrialJobs;
-  stats.powerSupply = powerSupply; stats.powerUse = powerUse; stats.waterSupply = waterSupply; stats.waterUse = waterUse;
-  stats.zonedLots = zonedLots; stats.withoutRoad = withoutRoad; stats.withoutPower = withoutPower; stats.withoutWater = withoutWater;
+  stats.zonedLots = zonedLots; stats.withoutRoad = withoutRoad;
   stats.congested = congested;
   stats.expenses = roadUpkeep + serviceUpkeep * staffing(city);
   stats.income = taxScale * (population * ZONE_SPECS[ZONE_R].taxPerUnit
@@ -221,6 +250,7 @@ export function derive(city: City) {
   for (let i = 0; i < tiles; i++) {
     if (city.facing[i] === NO_FACING && city.frontDir[i] !== NO_FACING && hasBuilding(city, i)) { city.facing[i] = city.frontDir[i]; city.buildRevision++; }
   }
+  supplyUtilities(city);
   surveyTraffic(city);
   surveyLand(city);
   countAndSupply(city);

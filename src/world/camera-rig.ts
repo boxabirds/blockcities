@@ -56,6 +56,9 @@ export class CameraRig {
 
   zoom(factor: number) { this.target.distance = clamp(this.target.distance * factor, MIN_DISTANCE, MAX_DISTANCE); }
 
+  /** Where the camera is heading, in world units and radians. */
+  get view(): View { return { ...this.target }; }
+
   /** Jumps straight to a view, with no easing. Missing fields keep their current target. */
   look(view: Partial<View>) {
     Object.assign(this.target, view);

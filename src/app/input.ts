@@ -6,24 +6,24 @@ import * as THREE from 'three/webgpu';
 import { TOOLS, toolDrag, type Tool } from '../game/actions.ts';
 import { TILE_STUDS } from '../game/tuning.ts';
 import type { CameraRig } from '../world/camera-rig.ts';
+import { pointerMode, type PointerMode } from './pointer-mode.ts';
 
 /** Keyboard panning covers this share of the camera's distance per second. */
 const PAN_RATE = 0.9;
 /** Radians per second for Q and E, and for the tilt keys. */
 const ORBIT_RATE = 1.6;
 const TILT_RATE = 0.9;
-/** Radians per pixel when dragging with the right button. */
+/** Radians per pixel when dragging to turn the view. */
 const ORBIT_PER_PIXEL = 0.006;
 /** Zoom factor per wheel pixel is the exponential of this; pinches report small deltas, so they count for more. */
 const ZOOM_PER_PIXEL = 0.0016;
 const PINCH_GAIN = 6;
 const KEY_ZOOM_RATE = 1.4;
-const LEFT_BUTTON = 0, MIDDLE_BUTTON = 1, RIGHT_BUTTON = 2;
 /** Number keys pick the first tools after "inspect", in toolbar order. */
 const DIGIT_TOOLS: readonly Tool[] = TOOLS.slice(1, 10);
 
 export type Tile = { x: number; z: number };
-type Mode = 'none' | 'tool' | 'pan' | 'orbit';
+type Mode = PointerMode;
 
 export class Input {
   tool: Tool = 'inspect';
@@ -83,9 +83,9 @@ export class Input {
     this.canvas.setPointerCapture(event.pointerId);
     this.lastX = event.clientX; this.lastY = event.clientY;
     this.hover = this.tileAt(event.clientX, event.clientY);
-    if (event.button === RIGHT_BUTTON) this.mode = 'orbit';
-    else if (event.button === MIDDLE_BUTTON || (event.button === LEFT_BUTTON && this.tool === 'inspect')) this.mode = 'pan';
-    else if (event.button === LEFT_BUTTON && this.hover) { this.mode = 'tool'; this.anchor = this.hover; }
+    const modifiers = { alt: event.altKey, ctrl: event.ctrlKey, shift: event.shiftKey, meta: event.metaKey };
+    this.mode = pointerMode(event.button, modifiers, this.tool, this.hover !== null);
+    if (this.mode === 'tool') this.anchor = this.hover;
   };
 
   private readonly move = (event: PointerEvent) => {

@@ -2,7 +2,8 @@
  * The city: one square grid of tiles held as flat arrays, plus the few numbers
  * that are not per tile. Nothing here draws; world/ reads it.
  */
-import { DEFAULT_TAX, MAP_SIZE, START_MONEY } from './tuning.ts';
+import { BALANCE } from './balance.ts';
+import { DEFAULT_TAX, MAP_SIZE } from './tuning.ts';
 
 // Ground under a tile.
 export const GRASS = 0, WATER = 1;
@@ -55,6 +56,8 @@ export type City = {
   day: number;
   /** Percent. */
   tax: number;
+  /** How many of the population milestones have been reached; they are never taken back. */
+  milestone: number;
   /** Bumped when anything that changes the ground or the road network changes. */
   revision: number;
   /** Bumped when any building gains or loses bricks. */
@@ -73,6 +76,8 @@ export type City = {
   readonly facing: Uint8Array;
   /** Days a finished zoned building has gone without a need. */
   readonly distress: Uint8Array;
+  /** The power and water flags a building had when supply was last shared out: whoever had it is served first. */
+  readonly served: Uint8Array;
 
   // Derived.
   readonly flags: Uint8Array;
@@ -90,10 +95,10 @@ export type City = {
 export function createCity(seed: number, size = MAP_SIZE): City {
   const tiles = size * size;
   return {
-    size, seed, rng: seed >>> 0, money: START_MONEY, day: 0, tax: DEFAULT_TAX, revision: 1, buildRevision: 1,
+    size, seed, rng: seed >>> 0, money: BALANCE.startMoney, day: 0, tax: DEFAULT_TAX, milestone: 0, revision: 1, buildRevision: 1,
     terrain: new Uint8Array(tiles), tree: new Uint8Array(tiles), structure: new Uint8Array(tiles), zone: new Uint8Array(tiles),
     level: new Uint8Array(tiles), progress: new Uint16Array(tiles), variant: new Uint8Array(tiles),
-    facing: new Uint8Array(tiles).fill(NO_FACING), distress: new Uint8Array(tiles),
+    facing: new Uint8Array(tiles).fill(NO_FACING), distress: new Uint8Array(tiles), served: new Uint8Array(tiles),
     flags: new Uint8Array(tiles), roadOf: new Int32Array(tiles).fill(-1), frontDir: new Uint8Array(tiles).fill(NO_FACING),
     landValue: new Float32Array(tiles), pollution: new Float32Array(tiles), traffic: new Float32Array(tiles),
     stats: {
@@ -114,5 +119,5 @@ export function hasBuilding(city: City, i: number) {
 
 /** Removes whatever is built on the tile, leaving its zone. */
 export function clearBuilding(city: City, i: number) {
-  city.level[i] = 0; city.progress[i] = 0; city.distress[i] = 0; city.facing[i] = NO_FACING;
+  city.level[i] = 0; city.progress[i] = 0; city.distress[i] = 0; city.served[i] = 0; city.facing[i] = NO_FACING;
 }
