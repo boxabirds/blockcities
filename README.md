@@ -105,7 +105,9 @@ npm run tune -- --write   # ...and write it to src/game/balance.json
 - `sim/targets.ts` says what a good balance looks like as bands: a careful
   mayor never in debt, a profit of 5 to 20 percent, no more than about a year
   of income in the bank after fifteen years; a generous one in debt for a
-  while and able to climb out. **These are design intent. Change them there.**
+  while and able to climb out. Final population is also judged on the worst
+  map, so one map going well cannot hide a city stuck on another.
+  **These are design intent. Change them there.**
 - `sim/tune.ts` turns six knobs (tax yield, service upkeep, service cost,
   roads, starting money, how fast staffing costs climb) to minimise the
   distance from those bands, playing every candidate in worker threads.

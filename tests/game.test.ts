@@ -517,6 +517,16 @@ test('the advisor names the next thing a new mayor has to do', () => {
   assert.match(advice(city), /^(Shops|Industry) are wanted/);
 });
 
+test('the advisor says when high tax, not debt, is what has stopped the city growing', () => {
+  const city = town();
+  run(city, 12 * DAYS_PER_MONTH);
+  assert.doesNotMatch(advice(city), /tax/);
+  city.tax = MAX_TAX;
+  run(city, DAYS_PER_MONTH);
+  assert.ok(city.money >= 0 && city.stats.income > city.stats.expenses && city.stats.demand[ZONE_R] <= 0);
+  assert.match(advice(city), new RegExp(`${MAX_TAX}% tax.*lower it in Budget`));
+});
+
 // --- Traffic load, avenues and staffing ------------------------------------------
 
 /** Homes at the west end of one long street and jobs at the east end, all finished at the level given. */

@@ -218,7 +218,11 @@ export class Mayor {
   private tax() {
     const { city } = this, monthly = city.stats.expenses * DAYS_PER_MONTH;
     if (city.money < 0 && city.tax < TAX_CEILING) { city.tax++; this.count('tax up'); }
-    else if (city.tax > DEFAULT_TAX && city.money > monthly * FLUSH_MONTHS && city.stats.income > city.stats.expenses) { city.tax--; this.count('tax down'); }
+    else if (city.tax > DEFAULT_TAX && city.stats.income > city.stats.expenses && city.money >= 0) {
+      // It brings tax back down when it has money put by, or when the planner says high tax has stopped the city growing.
+      const stalled = city.stats.demand[ZONE_R] <= 0;
+      if (stalled || city.money > monthly * FLUSH_MONTHS) { city.tax--; this.count('tax down'); }
+    }
     city.tax = Math.min(MAX_TAX, city.tax);
   }
 

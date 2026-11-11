@@ -64,7 +64,10 @@ export function hudMarkup() {
   <header class="masthead">
     <h1>block<span>cities</span></h1>
     <div class="clock"><span id="date"></span><div class="speeds" role="group" aria-label="Game speed">${speeds}</div></div>
-    <button type="button" id="daylight" aria-pressed="true" title="Day and night. Click to turn the cycle off and keep it at noon."></button>
+    <div class="masthead-row">
+      <button type="button" id="daylight" aria-pressed="true" title="Day and night. Click to turn the cycle off and keep it at noon."></button>
+      <button type="button" id="new-city" title="Start again on a fresh map. Asks once more before it replaces this city.">New city</button>
+    </div>
   </header>
   <aside class="readout" aria-label="City statistics">
     <div class="stat primary"><span id="money"></span><label id="net"></label></div>
@@ -79,7 +82,6 @@ export function hudMarkup() {
     <div class="row"><span>Income</span><b id="income"></b></div>
     <div class="row"><span>Upkeep</span><b id="expenses"></b></div>
     <p class="note">Per ${DAYS_PER_MONTH}-day month. Higher tax earns more from each resident and job, and lowers demand.</p>
-    <button type="button" id="new-city">New city</button>
   </section>
   <aside id="inspector" class="panel inspector" aria-live="polite"><h2 id="inspect-title"></h2><div id="inspect-lines"></div></aside>
   <div id="tool-hint" class="tool-hint" role="status"></div>
@@ -144,7 +146,7 @@ export class Hud {
     fresh.addEventListener('click', () => {
       // Two clicks, not a dialog: a dialog would stop the game and cannot be driven by the automation hook.
       if (performance.now() < this.confirmUntil) { this.confirmUntil = 0; fresh.textContent = 'New city'; actions.newCity(); return; }
-      this.confirmUntil = performance.now() + CONFIRM_MILLISECONDS; fresh.textContent = 'Click again to replace this city';
+      this.confirmUntil = performance.now() + CONFIRM_MILLISECONDS; fresh.textContent = 'Click again to replace';
       window.setTimeout(() => { if (performance.now() >= this.confirmUntil) fresh.textContent = 'New city'; }, CONFIRM_MILLISECONDS);
     }, options);
   }

@@ -32,6 +32,8 @@ export type Target = {
   readonly scale: number;
   /** Reported but left out of the loss: the knobs the tuner has cannot move it. */
   readonly watchedOnly?: boolean;
+  /** Judge the lowest value over the maps played instead of the average, so one map going well cannot hide another going badly. */
+  readonly worstMap?: boolean;
 };
 
 const monthsTo = (population: number) => (summary: Summary) => summary.monthsTo[MILESTONES.indexOf(population as (typeof MILESTONES)[number])] ?? NEVER;
@@ -53,16 +55,19 @@ export const TARGETS: readonly Target[] = [
   // Overspending is felt, and can be climbed out of.
   { name: 'generous: months in debt', style: 'generous', value: s => s.debtMonths, low: 3, high: 48, scale: 12 },
   { name: 'generous: residents at the end', style: 'generous', value: s => s.finalPopulation, low: 2500, high: Infinity, scale: 2000 },
+  // Nobody is stuck: on every map, not only on average, both mayors end with a real city.
+  { name: 'careful: residents at the end, worst map', style: 'careful', value: s => s.finalPopulation, low: 6000, high: Infinity, scale: 4000, worstMap: true },
+  { name: 'generous: residents at the end, worst map', style: 'generous', value: s => s.finalPopulation, low: 2000, high: Infinity, scale: 2000, worstMap: true },
 ];
 
 export type Score = { loss: number; lines: { name: string; value: number; low: number; high: number; miss: number; watchedOnly: boolean }[] };
 
-/** How far a set of results is from the targets: 0 is every target met. Values are averaged over the maps played. */
+/** How far a set of results is from the targets: 0 is every target met. Values are averaged over the maps played, unless the target asks for the worst. */
 export function score(results: readonly Result[]): Score {
   let loss = 0;
   const lines = TARGETS.map(target => {
     const values = results.filter(result => result.style === target.style).map(result => target.value(result.summary));
-    const value = values.reduce((sum, each) => sum + each, 0) / Math.max(1, values.length);
+    const value = target.worstMap ? Math.min(...values) : values.reduce((sum, each) => sum + each, 0) / Math.max(1, values.length);
     const outside = value < target.low ? target.low - value : value > target.high ? value - target.high : 0;
     const miss = outside / target.scale;
     if (!target.watchedOnly) loss += miss * miss;

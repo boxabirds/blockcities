@@ -3,7 +3,7 @@ import { AVENUE, FLAG_ACCESS, FLAG_POWER, FLAG_WATER, WATER, ZONE_C, ZONE_I, ZON
 import { bricksNeeded, congestion, desirability, isComplete, isOccupied, spareSupply, staffing, trafficNoise } from './derive.ts';
 import { SERVICES } from './services.ts';
 import { levelAllowed } from './sim.ts';
-import { DAYS_PER_MONTH, INDUSTRY_GATES, LAND_GATES, MONTHS_PER_YEAR, POPULATION_GATES, QUIET_SHARE, TRAFFIC_NOISE_WEIGHT } from './tuning.ts';
+import { DAYS_PER_MONTH, DEFAULT_TAX, INDUSTRY_GATES, LAND_GATES, MONTHS_PER_YEAR, POPULATION_GATES, QUIET_SHARE, TRAFFIC_NOISE_WEIGHT } from './tuning.ts';
 import { ZONE_SPECS, maxLevel } from './zones.ts';
 
 export type TileInfo = { title: string; lines: string[] };
@@ -105,6 +105,10 @@ export function advice(city: City): string {
   if (readyLots > 0 && spare.power < POWER_HEADROOM) return 'Power is nearly all used, so buildings have stopped growing: add turbines or a power station.';
   if (readyLots > 0 && spare.water < WATER_HEADROOM) return 'Water is nearly all used, so buildings have stopped growing: add a water tower.';
   if (stats.congested > 0) return `${stats.congested} road tiles carry more traffic than they can take: upgrade them to avenues, or put jobs nearer the homes.`;
+  // A city that put tax up to get out of debt and left it there stops growing, and stays small for good.
+  if (city.tax > DEFAULT_TAX && stats.demand[ZONE_R] <= 0 && stats.income > stats.expenses) {
+    return `Nobody wants to move in at ${city.tax}% tax, so the city has stopped growing. You are out of debt: lower it in Budget.`;
+  }
   for (const zone of [ZONE_R, ZONE_C, ZONE_I]) {
     if (stats.demand[zone] > WANTED_DEMAND && emptyByZone[zone] === 0) return `${ZONE_SPECS[zone].name} are wanted: zone more lots for them near a road.`;
   }

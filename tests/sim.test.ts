@@ -102,6 +102,14 @@ test('the loss is zero inside every band and grows with the distance outside', (
   // A watched-only target is reported but does not count.
   const slow = structuredClone(good); slow[0].summary.monthsTo = [200, 200, 200];
   assert.equal(score(slow).loss, 0);
+  // One map going very well must not hide another where the city is stuck: the average passes, the worst map does not.
+  const stuck = run('generous'), boom = run('generous');
+  stuck.summary.finalPopulation = 490; boom.summary.finalPopulation = 13000; boom.seed = SEED + 1;
+  const uneven = score([run('careful'), stuck, boom]);
+  const line = (name: string) => uneven.lines.find(each => each.name === name)!;
+  assert.equal(line('generous: residents at the end').miss, 0);
+  assert.equal(line('generous: residents at the end, worst map').value, 490);
+  assert.ok(line('generous: residents at the end, worst map').miss > 0 && uneven.loss > 0);
   assert.ok(score(slow).lines.some(line => line.watchedOnly && line.miss > 0));
 });
 
