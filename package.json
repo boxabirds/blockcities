@@ -10,8 +10,11 @@
     "test": "node --test tests/*.test.ts",
     "build": "vite build",
     "preview": "vite preview",
+    "play:build": "vite build --outDir play",
+    "play": "vite preview --outDir play --port 5199 --strictPort",
     "sim": "node sim/report.ts",
-    "tune": "node sim/tune.ts"
+    "tune": "node sim/tune.ts",
+    "weather:budget": "uv run --with playwright scripts/weather-budget.py"
   },
   "dependencies": {
     "three": "^0.185.0"

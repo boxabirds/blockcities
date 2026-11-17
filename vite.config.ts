@@ -8,6 +8,10 @@ export default defineConfig({
     host: true,
     allowedHosts: true,
   },
+  build: {
+    // Two pages: the game, and the weather designer.
+    rolldownOptions: { input: { main: 'index.html', weather: 'weather.html' } },
+  },
   preview: {
     host: true,
     allowedHosts: true,

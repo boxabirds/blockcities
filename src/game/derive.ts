@@ -11,7 +11,7 @@ import { BALANCE } from './balance.ts';
 import { buildingBlueprint } from './blueprints.ts';
 import { SERVICES } from './services.ts';
 import {
-  AVENUE_CAPACITY, COMMERCIAL_JOBS_PER_RESIDENT, DEFAULT_TAX, DEMAND_SCALE_SHARE, INDUSTRIAL_JOBS_PER_RESIDENT, INDUSTRY_POLLUTION,
+  AVENUE_CAPACITY, COMMERCIAL_JOBS_PER_RESIDENT, DAYS_PER_YEAR, DEFAULT_TAX, DEMAND_SCALE_SHARE, INDUSTRIAL_JOBS_PER_RESIDENT, INDUSTRY_POLLUTION,
   INDUSTRY_POLLUTION_RADIUS, MIN_DEMAND_SCALE, NEWCOMER_SHARE, POLLUTION_WEIGHT, QUIET_SHARE, ROAD_CAPACITY, ROAD_REACH,
   STARTER_HOMES, TAX_DEMAND_PER_POINT, TRAFFIC_NOISE_WEIGHT, WORKFORCE_SHARE,
 } from './tuning.ts';
@@ -230,7 +230,8 @@ function countAndSupply(city: City) {
   stats.population = population; stats.commercialJobs = commercialJobs; stats.industrialJobs = industrialJobs;
   stats.zonedLots = zonedLots; stats.withoutRoad = withoutRoad;
   stats.congested = congested;
-  stats.expenses = roadUpkeep + serviceUpkeep * staffing(city);
+  stats.interest = Math.max(0, -city.money) * BALANCE.debtInterest / DAYS_PER_YEAR;
+  stats.expenses = roadUpkeep + serviceUpkeep * staffing(city) + stats.interest;
   stats.income = taxScale * (population * ZONE_SPECS[ZONE_R].taxPerUnit
     + employed * (commercialJobs * ZONE_SPECS[ZONE_C].taxPerUnit + industrialJobs * ZONE_SPECS[ZONE_I].taxPerUnit));
 

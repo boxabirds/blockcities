@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { BALANCE } from '../src/game/balance.ts';
 import { applyTool, planTool, TOOLS } from '../src/game/actions.ts';
-import { BOX, CONE, PALETTE, buildingBlueprint, roadBlueprint, treeBlueprint, type Blueprint } from '../src/game/blueprints.ts';
+import { BOX, COLOR, CONE, PALETTE, buildingBlueprint, roadBlueprint, treeBlueprint, type Blueprint } from '../src/game/blueprints.ts';
 import {
   AVENUE, CLINIC, DIR_COUNT, FIRE, FLAG_ACCESS, GRASS, NONE, PARK, PLANT, POLICE, ROAD, SCHOOL, TOWER, WATER, WIND, ZONE_C, ZONE_I, ZONE_NONE, ZONE_R,
   hasBuilding, tileIndex, type City,
@@ -13,7 +13,7 @@ import { loadCity, saveCity } from '../src/game/save.ts';
 import { SERVICES } from '../src/game/services.ts';
 import { newCity, tick } from '../src/game/sim.ts';
 import { activeVehicles, createTraffic, findRoute, stepTraffic } from '../src/game/traffic.ts';
-import { AVENUE_CAPACITY, DAYS_PER_MONTH, ROAD_CAPACITY, WORKFORCE_SHARE, MAP_SIZE, MAX_TAX, TILE_STUDS } from '../src/game/tuning.ts';
+import { AVENUE_CAPACITY, DAYS_PER_MONTH, MONTHS_PER_YEAR, ROAD_CAPACITY, WORKFORCE_SHARE, MAP_SIZE, MAX_TAX, TILE_STUDS } from '../src/game/tuning.ts';
 import { ZONE_SPECS, maxLevel } from '../src/game/zones.ts';
 import { HOURS_PER_DAY, NOON, clockLabel, daylightAt } from '../src/world/daylight.ts';
 import { missingNeeds } from '../src/world/need-icons.ts';
@@ -141,6 +141,27 @@ test('a new map has a river from edge to edge, a lake, trees and mostly grass', 
 });
 
 // --- Tools -----------------------------------------------------------------------
+
+test('a road that stops dead keeps its centre markings up to the kerb that closes it', () => {
+  const painted = (blueprint: Blueprint, color: number) => blueprint.bricks.filter(brick => brick.color === color);
+  const through = painted(roadBlueprint(0b0101, false), COLOR.WHITE);
+  assert.ok(through.length > 0, 'a straight road has dashes');
+  for (let facing = 0; facing < DIR_COUNT; facing++) {
+    const end = roadBlueprint(1 << facing, false);
+    assert.equal(painted(end, COLOR.WHITE).length, through.length, `dead end facing ${facing}`);
+    assert.equal(painted(roadBlueprint(1 << facing, false, true), COLOR.YELLOW).length, painted(roadBlueprint(0b0101, false, true), COLOR.YELLOW).length);
+    // The markings run along the way the road leaves, and stop short of the kerb across its closed end.
+    const alongZ = facing % 2 === 0;
+    for (const dash of painted(end, COLOR.WHITE)) {
+      assert.ok(alongZ ? dash.d > dash.w : dash.w > dash.d, `dash runs the wrong way for facing ${facing}`);
+      const kerbs = end.bricks.filter(brick => brick.color === COLOR.LIGHT_GREY);
+      for (const kerb of kerbs) {
+        const apartX = Math.abs(dash.cx - kerb.cx) >= (dash.w + kerb.w) / 2 - EPSILON, apartZ = Math.abs(dash.cz - kerb.cz) >= (dash.d + kerb.d) / 2 - EPSILON;
+        assert.ok(apartX || apartZ, `a dash runs under a kerb for facing ${facing}`);
+      }
+    }
+  }
+});
 
 test('a road drag lays an L of tiles and charges for each', () => {
   const city = meadow();
@@ -515,6 +536,25 @@ test('the advisor names the next thing a new mayor has to do', () => {
   applyTool(city, 'tower', 0, 0, 9, 18);
   run(city, 4 * DAYS_PER_MONTH);
   assert.match(advice(city), /^(Shops|Industry) are wanted/);
+});
+
+test('a city in debt pays interest on what it owes, every day, and none once it is clear', () => {
+  const city = town();
+  run(city, 6 * DAYS_PER_MONTH);
+  assert.equal(city.stats.interest, 0);
+  const upkeep = city.stats.expenses, debt = 12_000;
+  city.money = -debt;
+  derive(city);
+  const daily = debt * BALANCE.debtInterest / (DAYS_PER_MONTH * MONTHS_PER_YEAR);
+  assert.ok(Math.abs(city.stats.interest - daily) < EPSILON);
+  assert.ok(Math.abs(city.stats.expenses - upkeep - daily) < EPSILON, 'interest is part of what the city spends');
+  assert.match(advice(city), /pays interest/);
+  const before = city.money, net = city.stats.income - city.stats.expenses;
+  tick(city);
+  assert.ok(Math.abs(city.money - (before + net)) < EPSILON);
+  city.money = 1;
+  derive(city);
+  assert.equal(city.stats.interest, 0);
 });
 
 test('the advisor says when high tax, not debt, is what has stopped the city growing', () => {

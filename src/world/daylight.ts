@@ -18,6 +18,11 @@ const DAY_FROM = -0.08;
 const DAY_FULL = 0.22;
 /** Dawn and dusk colour is strongest at the horizon and gone once the sun is this high or this far under. */
 const TWILIGHT_SPAN = 0.32;
+/** The sun is at full strength once it is this high (sine of elevation): low enough that it still lights the city while it is orange. */
+const SUN_FULL = 0.1;
+/** Its light has come through so much air that it is coloured until it is this high; the colour deepens faster than the height falls. */
+const WARM_BELOW = 0.6;
+const WARM_CURVE = 1.25;
 /** A light never comes from lower than this (sine of elevation), or shadows would stretch across the whole map. */
 const MIN_LIGHT_HEIGHT = 0.12;
 /** Windows come on as daylight falls below this, and are fully on at night. */
@@ -33,6 +38,8 @@ export type Daylight = {
   /** Strength of the sun and of the moon, each 0 to 1. One is always 0 when the other is not small. */
   sun: number;
   moon: number;
+  /** 0 to 1: how far the air has reddened the sun's light. 0 with the sun high, 1 with it on the horizon or under it. */
+  warmth: number;
   /** 0 to 1: how brightly windows glow. */
   windows: number;
 };
@@ -48,7 +55,7 @@ export function daylightAt(hour: number): Daylight {
   const twilight = clamp01(1 - Math.abs(height) / TWILIGHT_SPAN);
   // The sun lights the scene only while it is above the horizon, the moon only while the sun is well below it,
   // and both are at nothing when they change over, so the swap of direction is never seen.
-  const sun = smoothstep(0, DAY_FULL, height), moon = smoothstep(0, DAY_FULL, -height);
+  const sun = smoothstep(0, SUN_FULL, height), moon = smoothstep(0, DAY_FULL, -height);
   const up = height >= 0, peak = up ? NOON_ELEVATION : MOON_ELEVATION;
   const elevation = Math.asin(Math.max(MIN_LIGHT_HEIGHT, Math.abs(height) * Math.sin(peak)));
   // The moon crosses the sky twelve hours behind the sun, on the same track.
@@ -57,6 +64,7 @@ export function daylightAt(hour: number): Daylight {
   return {
     toLight: [flat * Math.sin(azimuth), Math.sin(elevation), flat * Math.cos(azimuth)],
     day, twilight, sun, moon,
+    warmth: clamp01(1 - height / WARM_BELOW) ** WARM_CURVE,
     windows: 1 - smoothstep(0, WINDOWS_ON_BELOW, day),
   };
 }

@@ -17,6 +17,8 @@ export type Balance = {
   bulldozeCost: number;
   /** One tile of each, per day. */
   roadUpkeep: number; bridgeUpkeep: number; avenueUpkeep: number; avenueBridgeUpkeep: number;
+  /** What an overdraft costs: this share of the debt each year, charged a day at a time. */
+  debtInterest: number;
   /** Services need more staff as the city grows: their upkeep is multiplied by 1 + residents / this. */
   staffingPopulation: number;
   /** Money per day per resident (homes) or filled job (shops, industry) at the default tax rate. */

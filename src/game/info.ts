@@ -93,7 +93,7 @@ export function advice(city: City): string {
     if (isRoad(city.structure[i])) roads++;
     else if (city.zone[i] !== ZONE_NONE && city.level[i] === 0 && city.flags[i] & FLAG_ACCESS) { emptyByZone[city.zone[i]]++; readyLots++; }
   }
-  if (city.money < 0) return 'The city is in debt: raise taxes or bulldoze what it cannot afford.';
+  if (city.money < 0) return 'The city is in debt and pays interest on it every day: raise taxes or bulldoze what it cannot afford.';
   if (roads === 0) return 'Start by laying a road.';
   if (stats.zonedLots === 0) return 'Zone some homes beside the road: lots within two tiles of a road get built on.';
   if (powerSources === 0) return 'Buildings stand empty without power: place a wind turbine.';

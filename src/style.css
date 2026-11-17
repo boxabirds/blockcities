@@ -76,6 +76,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .panel { padding: 12px 14px; font-size: 13px; }
 #budget { top: 100px; right: 16px; width: 270px; z-index: 2; background: rgb(255 255 255 / 94%); display: flex; flex-direction: column; gap: 8px; font-variant-numeric: tabular-nums; }
 #budget[hidden] { display: none; }
+#budget #interest-row { display: none; color: var(--red); font-size: 12px; }
+#budget #interest-row.owed { display: flex; }
 #budget .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 #budget input[type='range'] { flex: 1; accent-color: var(--red); }
 #budget .note { margin: 0; font-size: 11px; line-height: 1.35; color: var(--ink-soft); }

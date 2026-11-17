@@ -35,6 +35,9 @@ BOOT_TIMEOUT_MS = 60_000
 DRAG_STEPS = 12
 DEFAULT_SCRIPT = "wait:1;shot:start;snap"
 CHROME_ARGS = ["--enable-unsafe-webgpu", "--enable-features=WebGPU", "--use-angle=metal", "--ignore-gpu-blocklist"]
+# UNCAPPED=1 lifts the display's frame cap, so a frame-time measurement shows headroom instead of reading a flat 60.
+if os.environ.get("UNCAPPED"):
+    CHROME_ARGS += ["--disable-frame-rate-limit", "--disable-gpu-vsync"]
 HOOK = "window.__blockcities"
 
 

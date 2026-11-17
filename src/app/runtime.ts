@@ -14,7 +14,7 @@ import { activeVehicles, createTraffic, stepTraffic } from '../game/traffic.ts';
 import { AUTOSAVE_DAYS, DEFAULT_SPEED, MAP_SIZE, MAX_DAYS_PER_FRAME, MAX_TAX, MIN_TAX, SPEED_DAYS_PER_SECOND, TILE_STUDS } from '../game/tuning.ts';
 import { createBrickMaterials } from '../render/brick-materials.ts';
 import { createComposite } from '../render/composite.ts';
-import { loadEnvironment } from '../render/environment.ts';
+import { createSoftboxEnvironment } from '../render/softbox-environment.ts';
 import { createRenderer, resizeView } from '../render/renderer.ts';
 import { disposeBrickGeometries } from '../world/brick-set.ts';
 import { CameraRig, type View } from '../world/camera-rig.ts';
@@ -101,7 +101,7 @@ export async function startGame(stage: (message: string) => void, fail: (reason:
 
   stage('Loading the light');
   const scene = new THREE.Scene();
-  const environment = await loadEnvironment(renderer, scene, AMBIENT);
+  const environment = createSoftboxEnvironment(renderer, scene, AMBIENT);
   const sky = new Sky(scene, renderer);
 
   stage('Tipping out the bricks');
@@ -115,8 +115,9 @@ export async function startGame(stage: (message: string) => void, fail: (reason:
 
   let speed: number = DEFAULT_SPEED, dayDebt = 0, frames = 0, seconds = 0, lastSaveDay = city.day, lastToast = '';
   let plan: Plan | null = null, info: TileInfo | null = null;
-  let daylight = true, hour = OPENING_HOUR;
-  try { daylight = localStorage.getItem(DAYLIGHT_KEY) !== 'off'; } catch { /* no storage: keep the default */ }
+  // Studio lighting unless the mayor has asked for the day and night cycle.
+  let daylight = false, hour = OPENING_HOUR;
+  try { daylight = localStorage.getItem(DAYLIGHT_KEY) === 'on'; } catch { /* no storage: keep the default */ }
   const setDaylight = (on: boolean) => {
     daylight = on;
     try { localStorage.setItem(DAYLIGHT_KEY, on ? 'on' : 'off'); } catch { /* not remembered, still applied */ }
@@ -195,8 +196,8 @@ export async function startGame(stage: (message: string) => void, fail: (reason:
     } else { plan = null; info = null; }
     view.showPreview(city, tool, plan);
     const shown = daylight ? hour : NOON;
-    materials.windowGlow.value = sky.setTime(shown);
-    sky.follow(rig.focus, rig.distance);
+    materials.windowGlow.value = sky.setTime(shown, !daylight);
+    sky.follow(rig.focus, rig.distance, rig.camera.position);
     hud.update(city, info, plan, tool);
     hud.setClock(daylight, shown);
   };

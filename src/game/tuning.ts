@@ -23,6 +23,7 @@ export const SPEED_DAYS_PER_SECOND = [0, 2, 5, 12] as const;
 export const DEFAULT_SPEED = 1;
 export const DAYS_PER_MONTH = 30;
 export const MONTHS_PER_YEAR = 12;
+export const DAYS_PER_YEAR = DAYS_PER_MONTH * MONTHS_PER_YEAR;
 /** A frame never simulates more than this many days, so a hitch cannot stall the page. */
 export const MAX_DAYS_PER_FRAME = 4;
 export const AUTOSAVE_DAYS = 15;
@@ -100,6 +101,14 @@ export const AVENUE_CAPACITY = 1200;
 export const QUIET_SHARE = 0.5;
 /** Land value lost on a lot whose road is a full capacity past quiet, by zone (none, R, C, I). */
 export const TRAFFIC_NOISE_WEIGHT = [0, 0.5, 0, 0] as const;
+
+// --- Car windscreens ---------------------------------------------------------------
+
+/** A car's windscreen is the upright front of its cabin, this far ahead of the car's middle (studs). */
+export const WINDSCREEN_FORWARD = 0.45;
+/** The wiper turns about a point at the foot of the windscreen, this high above the ground, and is this long. */
+export const WIPER_PIVOT_HEIGHT = PLATE_HEIGHT + 0.72;
+export const WIPER_LENGTH = 0.42;
 
 // --- Cars (drawn only; the load above is what the simulation uses) ---------------
 

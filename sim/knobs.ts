@@ -5,11 +5,11 @@
  */
 import type { Balance, ServiceKey, ZoneKey } from '../src/game/balance.ts';
 
-export const KNOBS = ['tax', 'serviceUpkeep', 'serviceCost', 'roads', 'startMoney', 'staffing'] as const;
+export const KNOBS = ['tax', 'serviceUpkeep', 'serviceCost', 'roads', 'startMoney', 'staffing', 'debtInterest'] as const;
 export type Knob = (typeof KNOBS)[number];
 export type Settings = Record<Knob, number>;
 
-export const NEUTRAL: Settings = { tax: 1, serviceUpkeep: 1, serviceCost: 1, roads: 1, startMoney: 1, staffing: 1 };
+export const NEUTRAL: Settings = { tax: 1, serviceUpkeep: 1, serviceCost: 1, roads: 1, startMoney: 1, staffing: 1, debtInterest: 1 };
 /** No knob goes below or above these multiples of the balance it started from. */
 export const MIN_SETTING = 0.3;
 export const MAX_SETTING = 3;
@@ -21,6 +21,7 @@ export function applySettings(base: Balance, settings: Settings): Balance {
   return {
     ...base,
     startMoney: base.startMoney * settings.startMoney,
+    debtInterest: base.debtInterest * settings.debtInterest,
     roadCost: base.roadCost * settings.roads, bridgeCost: base.bridgeCost * settings.roads,
     avenueCost: base.avenueCost * settings.roads, avenueBridgeCost: base.avenueBridgeCost * settings.roads,
     roadUpkeep: base.roadUpkeep * settings.roads, bridgeUpkeep: base.bridgeUpkeep * settings.roads,
@@ -46,6 +47,7 @@ export function tidy(balance: Balance): Balance {
     roadCost: tidyNumber(balance.roadCost, 1), bridgeCost: tidyNumber(balance.bridgeCost, 5),
     avenueCost: tidyNumber(balance.avenueCost, 5), avenueBridgeCost: tidyNumber(balance.avenueBridgeCost, 10),
     bulldozeCost: balance.bulldozeCost,
+    debtInterest: tidyNumber(balance.debtInterest, 0.01),
     roadUpkeep: tidyNumber(balance.roadUpkeep, 0.01), bridgeUpkeep: tidyNumber(balance.bridgeUpkeep, 0.05),
     avenueUpkeep: tidyNumber(balance.avenueUpkeep, 0.01), avenueBridgeUpkeep: tidyNumber(balance.avenueBridgeUpkeep, 0.05),
     staffingPopulation: tidyNumber(balance.staffingPopulation, 250),

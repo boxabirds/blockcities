@@ -16,7 +16,7 @@ import { BOX, COLOR, TURBINE_HUB_FORWARD, TURBINE_HUB_PLATES, buildingBlueprint,
 import { AVENUE, DIR_COUNT, DIR_X, DIR_Z, NO_FACING, NONE, WATER, WIND, ZONE_C, ZONE_I, ZONE_NONE, ZONE_R, hasBuilding, isRoad, type City } from '../game/city.ts';
 import { isComplete } from '../game/derive.ts';
 import type { Traffic } from '../game/traffic.ts';
-import { MAX_VEHICLES, PLATE_HEIGHT, TILE_STUDS } from '../game/tuning.ts';
+import { MAX_VEHICLES, PLATE_HEIGHT, TILE_STUDS, WINDSCREEN_FORWARD, WIPER_LENGTH, WIPER_PIVOT_HEIGHT } from '../game/tuning.ts';
 import type { BrickMaterials } from '../render/brick-materials.ts';
 import { BrickSet } from './brick-set.ts';
 import { NeedIcons } from './need-icons.ts';
@@ -44,6 +44,13 @@ const CAR_CABIN = [0, 0.72, -0.2, 1.15, 0.45, 1.3] as const;
 const CAR_ROOF = [0, 1.17, -0.2, 1.2, 0.12, 1.35] as const;
 /** How quickly a car's drawn heading follows its real one (per second), so it swings through a bend. */
 const TURN_RATE = 9;
+/** Each moving thing's raindrops are shifted by this much times its number, so no two cars carry the same ones. */
+const OWN_STEP = 7.31;
+/** A wiper: how thick its blade is, how far it stands off the glass, how far it swings each side of upright (radians) and how many sweeps a second. */
+const WIPER_THICKNESS = 0.05;
+const WIPER_STANDOFF = 0.03;
+const WIPER_SWING = 1.05;
+const WIPER_SWEEPS = 1.3;
 
 // A wind turbine's rotor.
 const BLADES = 3;
@@ -102,6 +109,8 @@ export class CityView {
   private city: City | null = null;
   private readonly headings = new Float32Array(MAX_VEHICLES);
   private readonly wasActive = new Uint8Array(MAX_VEHICLES);
+  /** Whether cars have their wipers going. */
+  wipers = false;
   /** World x and z of the corner of tile (0, 0). */
   private origin = 0;
 
@@ -111,7 +120,7 @@ export class CityView {
     this.fixtures = new BrickSet(materials, { shadows: true, capacity: FIXTURE_CAPACITY });
     this.settled = new BrickSet(materials, { shadows: true, capacity: BUILDING_CAPACITY, windows: true });
     this.sites = new BrickSet(materials, { shadows: true, capacity: FIXTURE_CAPACITY, windows: true });
-    this.moving = new BrickSet(materials, { shadows: true, capacity: MOVING_CAPACITY });
+    this.moving = new BrickSet(materials, { shadows: true, capacity: MOVING_CAPACITY, anchored: true });
     this.preview = new BrickSet(materials, { shadows: false, capacity: PREVIEW_CAPACITY });
     const table = new THREE.Mesh(
       new THREE.CircleGeometry(TABLE_RADIUS, TABLE_SEGMENTS).rotateX(-QUARTER_TURN),
@@ -214,11 +223,14 @@ export class CityView {
       let turn = heading - this.headings[n];
       turn -= Math.round(turn / TAU) * TAU;
       this.headings[n] += turn * ease;
+      moving.anchor(this.origin + vehicle.x, this.origin + vehicle.z, this.headings[n], n * OWN_STEP);
       this.car(this.origin + vehicle.x, this.origin + vehicle.z, this.headings[n], vehicle.color);
+      if (this.wipers) this.wiper(this.origin + vehicle.x, this.origin + vehicle.z, this.headings[n], seconds * WIPER_SWEEPS * TAU + n);
     });
     for (let i = 0; i < size * size; i++) {
       if (city.structure[i] !== WIND || !isComplete(city, i)) continue;
       const x = i % size, z = (i - x) / size, facing = city.facing[i] === NO_FACING ? 0 : city.facing[i];
+      moving.anchor(this.origin + (x + 0.5) * TILE_STUDS, this.origin + (z + 0.5) * TILE_STUDS, facing * QUARTER_TURN, i * OWN_STEP);
       this.rotor(
         this.origin + (x + 0.5) * TILE_STUDS + DIR_X[facing] * TURBINE_HUB_FORWARD, this.origin + (z + 0.5) * TILE_STUDS + DIR_Z[facing] * TURBINE_HUB_FORWARD,
         facing * QUARTER_TURN, seconds * ROTOR_SPEED + i * ROTOR_PHASE,
@@ -237,6 +249,17 @@ export class CityView {
     part(BOX, true, CAR_CABIN[0], CAR_CABIN[1], CAR_CABIN[2], CAR_CABIN[3], CAR_CABIN[4], CAR_CABIN[5], COLOR.GLASS_ICE);
     part(BOX, false, CAR_ROOF[0], CAR_ROOF[1], CAR_ROOF[2], CAR_ROOF[3], CAR_ROOF[4], CAR_ROOF[5], color);
     moving.stud(x + CAR_ROOF[2] * sin, ROAD_TOP + CAR_ROOF[1] + CAR_ROOF[4], z + CAR_ROOF[2] * cos, color, false);
+  }
+
+  /** The blade on a car's windscreen, swung to where it is at `phase` in its sweep. */
+  private wiper(x: number, z: number, heading: number, phase: number) {
+    const { moving } = this, sin = Math.sin(heading), cos = Math.cos(heading), forward = WINDSCREEN_FORWARD + WIPER_STANDOFF;
+    // It stands on its pivot at the foot of the glass and leans from side to side about the way the car faces.
+    turnY.setFromAxisAngle(UP, heading);
+    spin.setFromAxisAngle(FORWARD, Math.sin(phase) * WIPER_SWING);
+    rotation.copy(turnY).multiply(spin);
+    position.set(x + forward * sin, WIPER_PIVOT_HEIGHT, z + forward * cos); scale.set(WIPER_THICKNESS, WIPER_LENGTH, WIPER_THICKNESS);
+    moving.addMatrix(BOX, false, matrix.compose(position, rotation, scale), COLOR.BLACK);
   }
 
   private rotor(x: number, z: number, yaw: number, angle: number) {

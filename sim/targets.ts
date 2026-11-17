@@ -16,7 +16,7 @@ export const YEARS = 15;
 const MONTHS = YEARS * 12;
 /** What "never" counts as, in months, for a milestone or break-even that was not reached. */
 const NEVER = MONTHS * 1.5;
-const SEEDS = [7, 21] as const;
+const SEEDS = [7, 21, 33] as const;
 
 /** The games one evaluation of a balance plays. */
 export const JOBS: readonly Job[] = SEEDS.flatMap(seed => [{ seed, style: 'careful', years: YEARS }, { seed, style: 'generous', years: YEARS }]);
@@ -34,6 +34,8 @@ export type Target = {
   readonly watchedOnly?: boolean;
   /** Judge the lowest value over the maps played instead of the average, so one map going well cannot hide another going badly. */
   readonly worstMap?: boolean;
+  /** Judge this style's average as a multiple of another style's, instead of on its own. */
+  readonly against?: string;
 };
 
 const monthsTo = (population: number) => (summary: Summary) => summary.monthsTo[MILESTONES.indexOf(population as (typeof MILESTONES)[number])] ?? NEVER;
@@ -56,6 +58,8 @@ export const TARGETS: readonly Target[] = [
   { name: 'generous: months in debt', style: 'generous', value: s => s.debtMonths, low: 3, high: 48, scale: 12 },
   { name: 'generous: residents at the end', style: 'generous', value: s => s.finalPopulation, low: 2500, high: Infinity, scale: 2000 },
   // Nobody is stuck: on every map, not only on average, both mayors end with a real city.
+  // Reading the budget is worth it: the mayor who does not must not end up with the bigger city.
+  { name: 'generous: residents at the end, as a multiple of careful', style: 'generous', against: 'careful', value: s => s.finalPopulation, low: 0, high: 1, scale: 0.25 },
   { name: 'careful: residents at the end, worst map', style: 'careful', value: s => s.finalPopulation, low: 6000, high: Infinity, scale: 4000, worstMap: true },
   { name: 'generous: residents at the end, worst map', style: 'generous', value: s => s.finalPopulation, low: 2000, high: Infinity, scale: 2000, worstMap: true },
 ];
@@ -66,8 +70,10 @@ export type Score = { loss: number; lines: { name: string; value: number; low: n
 export function score(results: readonly Result[]): Score {
   let loss = 0;
   const lines = TARGETS.map(target => {
-    const values = results.filter(result => result.style === target.style).map(result => target.value(result.summary));
-    const value = target.worstMap ? Math.min(...values) : values.reduce((sum, each) => sum + each, 0) / Math.max(1, values.length);
+    const valuesOf = (style: string) => results.filter(result => result.style === style).map(result => target.value(result.summary));
+    const mean = (values: number[]) => values.reduce((sum, each) => sum + each, 0) / Math.max(1, values.length);
+    const values = valuesOf(target.style), other = target.against ? mean(valuesOf(target.against)) : 1;
+    const value = target.worstMap ? Math.min(...values) : target.against ? (other > 0 ? mean(values) / other : 0) : mean(values);
     const outside = value < target.low ? target.low - value : value > target.high ? value - target.high : 0;
     const miss = outside / target.scale;
     if (!target.watchedOnly) loss += miss * miss;

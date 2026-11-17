@@ -29,7 +29,7 @@ export type MayorStyle = {
 };
 
 /** Plays sensibly: a model of a player who reads the budget. */
-export const CAREFUL: MayorStyle = { name: 'careful', reserve: 1500, lotsPerService: 14, checksBudget: true, adjustsTax: true };
+export const CAREFUL: MayorStyle = { name: 'careful', reserve: 1500, lotsPerService: 9, checksBudget: true, adjustsTax: true };
 /** Builds services without asking whether the city can keep them, and puts tax up when the money runs out: a player who learns the hard way. */
 export const GENEROUS: MayorStyle = { name: 'generous', reserve: 500, lotsPerService: 9, checksBudget: false, adjustsTax: true };
 /** Builds every service it can pay for today and never touches tax: a model of a player who does not read the budget. */

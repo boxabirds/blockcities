@@ -37,8 +37,10 @@ export type Stats = {
   industrialJobs: number;
   powerSupply: number; powerUse: number;
   waterSupply: number; waterUse: number;
-  /** Money per day. */
+  /** Money per day. Expenses include the interest. */
   income: number; expenses: number;
+  /** Money per day paid on the overdraft; 0 when the city is not in debt. */
+  interest: number;
   /** -1..1 for each zone; index 0 is unused. */
   demand: [number, number, number, number];
   zonedLots: number;
@@ -103,7 +105,7 @@ export function createCity(seed: number, size = MAP_SIZE): City {
     landValue: new Float32Array(tiles), pollution: new Float32Array(tiles), traffic: new Float32Array(tiles),
     stats: {
       population: 0, commercialJobs: 0, industrialJobs: 0, powerSupply: 0, powerUse: 0, waterSupply: 0, waterUse: 0,
-      income: 0, expenses: 0, demand: [0, 0, 0, 0], zonedLots: 0, withoutRoad: 0, withoutPower: 0, withoutWater: 0, congested: 0,
+      income: 0, expenses: 0, interest: 0, demand: [0, 0, 0, 0], zonedLots: 0, withoutRoad: 0, withoutPower: 0, withoutWater: 0, congested: 0,
     },
   };
 }

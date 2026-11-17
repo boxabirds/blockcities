@@ -529,19 +529,25 @@ export function roadBlueprint(links: number, bridge: boolean, avenue = false): B
     const zSide = facing === 0 || next === 0 ? far : 0, xSide = facing === 1 || next === 1 ? far : 0;
     b.box(xSide, zSide, KERB_WIDTH, KERB_WIDTH, PLATE, height, kerb);
   }
-  const alongZ = linked(0) && linked(2) && !linked(1) && !linked(3), alongX = linked(1) && linked(3) && !linked(0) && !linked(2);
+  // Markings run down every straight piece: one that carries on both ways, and one that stops dead, where they
+  // run up to the kerb across its closed end.
+  const ways = [0, 1, 2, 3].filter(linked);
+  const straight = ways.length === 2 && (ways[0] + ways[1]) % 2 === 0, deadEnd = ways.length === 1;
+  const alongZ = (straight || deadEnd) && ways[0] % 2 === 0, alongX = (straight || deadEnd) && ways[0] % 2 === 1;
+  const from = (alongZ ? linked(2) : linked(3)) ? 0 : KERB_WIDTH, to = (alongZ ? linked(0) : linked(1)) ? LOT : far;
   const middle = (LOT - DASH_WIDTH) / 2;
+  /** One painted strip across the road's width at `across`, from `start` for `length` along it, cut to fit between the kerbs. */
+  const paint = (across: number, start: number, length: number, color: number) => {
+    const begin = Math.max(start, from), end = Math.min(start + length, to);
+    if (end <= begin) return;
+    if (alongZ) b.box(across, begin, DASH_WIDTH, end - begin, PLATE, DASH_PLATES, color);
+    else if (alongX) b.box(begin, across, end - begin, DASH_WIDTH, PLATE, DASH_PLATES, color);
+  };
   if (avenue) {
     // An avenue has a double yellow line down the middle of every straight run.
-    for (const side of [-AVENUE_LINE_GAP, AVENUE_LINE_GAP]) {
-      if (alongZ) b.box(middle + side, 0, DASH_WIDTH, LOT, PLATE, DASH_PLATES, COLOR.YELLOW);
-      if (alongX) b.box(0, middle + side, LOT, DASH_WIDTH, PLATE, DASH_PLATES, COLOR.YELLOW);
-    }
+    for (const side of [-AVENUE_LINE_GAP, AVENUE_LINE_GAP]) paint(middle + side, 0, LOT, COLOR.YELLOW);
   } else {
-    for (const start of DASH_STARTS) {
-      if (alongZ) b.box(middle, start, DASH_WIDTH, DASH_LENGTH, PLATE, DASH_PLATES, COLOR.WHITE);
-      if (alongX) b.box(start, middle, DASH_LENGTH, DASH_WIDTH, PLATE, DASH_PLATES, COLOR.WHITE);
-    }
+    for (const start of DASH_STARTS) paint(middle, start, DASH_LENGTH, COLOR.WHITE);
   }
   blueprint = b.finish();
   roads.set(key, blueprint);

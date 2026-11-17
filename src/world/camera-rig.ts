@@ -3,11 +3,20 @@ import * as THREE from 'three/webgpu';
 
 /** A long lens, so the city reads as a model on a table. */
 const FIELD_OF_VIEW = 30;
-const NEAR = 2;
+/**
+ * Nothing nearer the lens than this is drawn. It is a share of the camera's distance from what it looks at, within
+ * two limits (studs), so that close in the camera can sit among the bricks without cutting them open, and far out
+ * the depth of the scene is still measured finely enough.
+ */
+const NEAR_SHARE = 0.06;
+const MIN_NEAR = 0.1;
+const MAX_NEAR = 2;
 const FAR = 4000;
-const MIN_DISTANCE = 22;
+/** As close as the mayor can get: a few studs, near enough to see a single raindrop. */
+const MIN_DISTANCE = 3;
 const MAX_DISTANCE = 330;
-const MIN_PITCH = 0.3;
+/** The lowest the camera tilts: almost along the street. */
+const MIN_PITCH = 0.12;
 const MAX_PITCH = 1.45;
 /** How quickly the view catches up with its target (per second). */
 const EASE_RATE = 12;
@@ -20,7 +29,7 @@ export type View = { x: number; z: number; distance: number; yaw: number; pitch:
 const clamp = (value: number, low: number, high: number) => Math.max(low, Math.min(high, value));
 
 export class CameraRig {
-  readonly camera = new THREE.PerspectiveCamera(FIELD_OF_VIEW, 1, NEAR, FAR);
+  readonly camera = new THREE.PerspectiveCamera(FIELD_OF_VIEW, 1, MAX_NEAR, FAR);
   /** Where the camera is looking, on the ground. */
   readonly focus = new THREE.Vector3();
   distance = START_DISTANCE;
@@ -81,6 +90,8 @@ export class CameraRig {
     this.camera.position.set(this.focus.x + Math.sin(this.yaw) * flat, Math.sin(this.pitch) * this.distance, this.focus.z + Math.cos(this.yaw) * flat);
     this.camera.lookAt(this.focus);
     this.camera.updateMatrixWorld();
+    const near = clamp(this.distance * NEAR_SHARE, MIN_NEAR, MAX_NEAR);
+    if (near !== this.camera.near) { this.camera.near = near; this.camera.updateProjectionMatrix(); }
   }
 
   /** The point on the ground under a pointer position in normalised device coordinates, or null when it is above the horizon. */

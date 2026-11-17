@@ -65,7 +65,7 @@ export function hudMarkup() {
     <h1>block<span>cities</span></h1>
     <div class="clock"><span id="date"></span><div class="speeds" role="group" aria-label="Game speed">${speeds}</div></div>
     <div class="masthead-row">
-      <button type="button" id="daylight" aria-pressed="true" title="Day and night. Click to turn the cycle off and keep it at noon."></button>
+      <button type="button" id="daylight" aria-pressed="true" title="Lighting. Studio light keeps the city lit like a model on a table; click for a day and night cycle."></button>
       <button type="button" id="new-city" title="Start again on a fresh map. Asks once more before it replaces this city.">New city</button>
     </div>
   </header>
@@ -81,6 +81,7 @@ export function hudMarkup() {
     <div class="row"><label for="tax">Tax</label><input id="tax" type="range" min="${MIN_TAX}" max="${MAX_TAX}" step="1"><b id="tax-text"></b></div>
     <div class="row"><span>Income</span><b id="income"></b></div>
     <div class="row"><span>Upkeep</span><b id="expenses"></b></div>
+    <div class="row" id="interest-row"><span>of which interest on debt</span><b id="interest"></b></div>
     <p class="note">Per ${DAYS_PER_MONTH}-day month. Higher tax earns more from each resident and job, and lowers demand.</p>
   </section>
   <aside id="inspector" class="panel inspector" aria-live="polite"><h2 id="inspect-title"></h2><div id="inspect-lines"></div></aside>
@@ -249,7 +250,7 @@ export class Hud {
   /** Shows the hour and whether it is day or night, or that the cycle is off. */
   setClock(on: boolean, hour: number) {
     const night = daylightAt(hour).day < HALF;
-    this.text('daylight', on ? `${night ? '☾' : '☀'} ${clockLabel(hour)}` : '☀ Day only');
+    this.text('daylight', on ? `${night ? '☾' : '☀'} ${clockLabel(hour)}` : '💡 Studio light');
     const pressed = String(on);
     if (this.cache.get('daylight@pressed') !== pressed) { this.cache.set('daylight@pressed', pressed); this.element('daylight').setAttribute('aria-pressed', pressed); }
   }
@@ -284,6 +285,8 @@ export class Hud {
     }
     this.text('income', money(stats.income * DAYS_PER_MONTH));
     this.text('expenses', money(stats.expenses * DAYS_PER_MONTH));
+    this.text('interest', money(stats.interest * DAYS_PER_MONTH));
+    this.flag('interest-row', 'owed', stats.interest > 0);
     this.text('tax-text', `${city.tax}%`);
     const slider = this.element('tax') as HTMLInputElement;
     if (document.activeElement !== slider && slider.value !== String(city.tax)) slider.value = String(city.tax);

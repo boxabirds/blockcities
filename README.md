@@ -46,8 +46,12 @@ says what it is waiting for. The city is congratulated at 100, 500, 1,500,
 | `Esc` | abandon a drag, then put the tool down |
 | `Space` | pause |
 
-The sun goes round once every four minutes of play, and windows light up at
-night. The clock button under the date turns that off and keeps it at noon.
+The city opens under studio light: a key lamp over your shoulder and a second
+lamp that follows the camera, so the plastic shines from every angle. The
+button under the date switches to a day and night cycle, where the sun goes
+round once every four minutes of play and windows light up at night. Under the
+real sun the studio lamps step back so its shadows show, its light reddens as
+it sinks, and it is drawn in the sky.
 
 ![The same city at night, windows lit](docs/night.png)
 
@@ -127,6 +131,21 @@ The second command drives the running dev server in real Chrome, with the real
 mouse and keyboard or through `window.__blockcities`, the automation hook that
 goes through the same functions as the interface. See the docstring in
 `scripts/drive.py` for the steps.
+
+## Weather designer
+
+`/weather.html` is a separate page for trying weather effects on a fixed city
+before any of them go into the game: every effect on a switch, every number on
+a slider. So far it has rain as drops on the bricks: pooled beads on flat
+tops, fine beads clinging to walls, and drops that run down walls and wipe the
+beads in their path. All of it is drawn in the brick shader, with no particles.
+
+```sh
+npm run weather:budget -- http://localhost:5173/weather.html
+```
+
+measures what each effect costs with the display's frame cap lifted, at Retina
+pixel density, against the 60 frames a second the game has to hold.
 
 ## Licence
 

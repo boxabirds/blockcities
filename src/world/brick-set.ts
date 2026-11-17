@@ -4,13 +4,16 @@
  * shape and material, refilled from scratch whenever what it shows changes.
  */
 import * as THREE from 'three/webgpu';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BOX, CONE, CYLINDER, PALETTE, SHAPE_COUNT, SLOPE, type Blueprint } from '../game/blueprints.ts';
 import { NO_FACING } from '../game/city.ts';
 import { PLATE_HEIGHT, STUD_DIAMETER, STUD_HEIGHT, TILE_STUDS } from '../game/tuning.ts';
-import type { BrickMaterials } from '../render/brick-materials.ts';
+import { BRICK_ANCHOR_ATTRIBUTE, BRICK_SIZE_ATTRIBUTE, BRICK_TURN_ATTRIBUTE, type BrickMaterials } from '../render/brick-materials.ts';
 
-const CYLINDER_SEGMENTS = 14;
+const CYLINDER_SEGMENTS = 16;
+/** The top edge of a cylinder is rounded over this share of its radius and of its height, in this many steps: the rim is what catches the light on a stud. */
+const RIM_RADIUS = 0.14;
+const RIM_HEIGHT = 0.22;
+const RIM_STEPS = 2;
 const CONE_SEGMENTS = 14;
 /** Height of the upright lip at the low edge of a slope, as a share of its height. */
 const SLOPE_LIP = 0.14;
@@ -20,17 +23,23 @@ const QUARTER_TURN = Math.PI / 2;
 const HALF_LOT = TILE_STUDS / 2;
 const MATRIX_SIZE = 16;
 const COLOR_SIZE = 3;
+const SIZE_SIZE = 3;
+const TURN_SIZE = 4;
+const ANCHOR_SIZE = 4;
 const GROWTH = 2;
 
 function boxGeometry() { return new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0); }
 
-/** An upright cylinder with a top and no bottom: bricks stand on something, and studs are many. */
+/** An upright cylinder with a rounded top edge and no bottom: bricks stand on something, and studs are many. */
 function cylinderGeometry() {
-  const side = new THREE.CylinderGeometry(0.5, 0.5, 1, CYLINDER_SEGMENTS, 1, true).translate(0, 0.5, 0);
-  const top = new THREE.CircleGeometry(0.5, CYLINDER_SEGMENTS).rotateX(-QUARTER_TURN).translate(0, 1, 0);
-  const merged = mergeGeometries([side, top]);
-  side.dispose(); top.dispose();
-  return merged;
+  // The outline from the foot, up the side, round the rim and in to the middle of the top, turned about the vertical.
+  const outline = [new THREE.Vector2(0.5, 0), new THREE.Vector2(0.5, 1 - RIM_HEIGHT)];
+  for (let step = 1; step <= RIM_STEPS; step++) {
+    const angle = step / RIM_STEPS * QUARTER_TURN;
+    outline.push(new THREE.Vector2(0.5 - RIM_RADIUS * (1 - Math.cos(angle)) * 0.5, 1 - RIM_HEIGHT * (1 - Math.sin(angle))));
+  }
+  outline.push(new THREE.Vector2(0, 1));
+  return new THREE.LatheGeometry(outline, CYLINDER_SEGMENTS);
 }
 
 /** A wedge: full height along its -z edge, down to a short lip along +z. */
@@ -65,13 +74,35 @@ class Batch {
   private count = 0;
   private readonly parent: THREE.Group;
   private readonly shadows: boolean;
+  /** Whether each brick also records its size and turn, for the material that rounds box edges. */
+  private readonly sized: boolean;
+  private readonly shape: THREE.BufferGeometry;
+  private size: THREE.InstancedBufferAttribute | null = null;
+  private turn: THREE.InstancedBufferAttribute | null = null;
+  /** For a set of moving things: the anchor each brick is written with, shared with the set, which keeps it current. */
+  private readonly anchorNow: Float32Array | null;
+  private anchor: THREE.InstancedBufferAttribute | null = null;
 
-  constructor(parent: THREE.Group, geometry: THREE.BufferGeometry, material: THREE.Material, capacity: number, shadows: boolean) {
-    this.parent = parent; this.capacity = capacity; this.shadows = shadows;
-    this.mesh = this.create(geometry, material, capacity);
+  constructor(parent: THREE.Group, geometry: THREE.BufferGeometry, material: THREE.Material, capacity: number, shadows: boolean, sized: boolean, anchorNow: Float32Array | null) {
+    this.parent = parent; this.capacity = capacity; this.shadows = shadows; this.sized = sized; this.shape = geometry; this.anchorNow = anchorNow;
+    this.mesh = this.create(material, capacity);
   }
 
-  private create(geometry: THREE.BufferGeometry, material: THREE.Material, capacity: number) {
+  private create(material: THREE.Material, capacity: number) {
+    // Per-brick attributes live on the geometry, so a batch that has them needs a geometry of its own.
+    let geometry = this.shape;
+    if (this.sized || this.anchorNow) geometry = this.shape.clone();
+    if (this.anchorNow) {
+      this.anchor = new THREE.InstancedBufferAttribute(new Float32Array(capacity * ANCHOR_SIZE), ANCHOR_SIZE);
+      this.anchor.setUsage(THREE.DynamicDrawUsage);
+      geometry.setAttribute(BRICK_ANCHOR_ATTRIBUTE, this.anchor);
+    }
+    if (this.sized) {
+      this.size = new THREE.InstancedBufferAttribute(new Float32Array(capacity * SIZE_SIZE), SIZE_SIZE);
+      this.turn = new THREE.InstancedBufferAttribute(new Float32Array(capacity * TURN_SIZE), TURN_SIZE);
+      this.size.setUsage(THREE.DynamicDrawUsage); this.turn.setUsage(THREE.DynamicDrawUsage);
+      geometry.setAttribute(BRICK_SIZE_ATTRIBUTE, this.size); geometry.setAttribute(BRICK_TURN_ATTRIBUTE, this.turn);
+    }
     const mesh = new THREE.InstancedMesh(geometry, material, capacity);
     mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(capacity * COLOR_SIZE), COLOR_SIZE);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
@@ -89,25 +120,40 @@ class Batch {
     if (this.count === this.capacity) this.grow();
     matrix.toArray(this.mesh.instanceMatrix.array, this.count * MATRIX_SIZE);
     color.toArray(this.mesh.instanceColor!.array, this.count * COLOR_SIZE);
+    if (this.size && this.turn) {
+      matrix.decompose(partPosition, partTurn, partSize);
+      partSize.toArray(this.size.array, this.count * SIZE_SIZE); partTurn.toArray(this.turn.array, this.count * TURN_SIZE);
+    }
+    if (this.anchor && this.anchorNow) (this.anchor.array as Float32Array).set(this.anchorNow, this.count * ANCHOR_SIZE);
     this.count++;
   }
 
   private grow() {
-    const old = this.mesh, capacity = this.capacity * GROWTH;
-    const mesh = this.create(old.geometry, old.material as THREE.Material, capacity);
+    const old = this.mesh, capacity = this.capacity * GROWTH, oldSize = this.size, oldTurn = this.turn, oldAnchor = this.anchor;
+    const mesh = this.create(old.material as THREE.Material, capacity);
     (mesh.instanceMatrix.array as Float32Array).set(old.instanceMatrix.array as Float32Array);
     (mesh.instanceColor!.array as Float32Array).set(old.instanceColor!.array as Float32Array);
+    if (oldSize && oldTurn) { (this.size!.array as Float32Array).set(oldSize.array as Float32Array); (this.turn!.array as Float32Array).set(oldTurn.array as Float32Array); }
+    if (oldAnchor) (this.anchor!.array as Float32Array).set(oldAnchor.array as Float32Array);
     this.parent.remove(old); old.dispose();
+    if (this.owned) old.geometry.dispose();
     this.mesh = mesh; this.capacity = capacity;
   }
 
   end() {
     this.mesh.count = this.count; this.mesh.visible = this.count > 0;
     this.mesh.instanceMatrix.needsUpdate = true; this.mesh.instanceColor!.needsUpdate = true;
+    if (this.size && this.turn) { this.size.needsUpdate = true; this.turn.needsUpdate = true; }
+    if (this.anchor) this.anchor.needsUpdate = true;
   }
 
-  dispose() { this.parent.remove(this.mesh); this.mesh.dispose(); }
+  /** Whether this batch's geometry is a copy of its own, to be disposed of with it. */
+  private get owned() { return this.sized || this.anchorNow !== null; }
+
+  dispose() { this.parent.remove(this.mesh); this.mesh.dispose(); if (this.owned) this.mesh.geometry.dispose(); }
 }
+
+const partPosition = new THREE.Vector3(), partSize = new THREE.Vector3(), partTurn = new THREE.Quaternion();
 
 export type BrickSetOptions = {
   /** Whether these bricks cast shadows. */
@@ -118,6 +164,8 @@ export type BrickSetOptions = {
   seamless?: boolean;
   /** Glass here is windows, which glow at night. */
   windows?: boolean;
+  /** These bricks are parts of things that move: each is drawn with the anchor last given to `anchor`, so its raindrops ride with it. */
+  anchored?: boolean;
 };
 
 const position = new THREE.Vector3(), scale = new THREE.Vector3(), quaternion = new THREE.Quaternion(), matrix = new THREE.Matrix4();
@@ -130,16 +178,26 @@ export class BrickSet {
   /** Indexed by shape, then again offset by SHAPE_COUNT for glass; made the first time each is needed. */
   private readonly batches: (Batch | undefined)[] = [];
   private readonly seam: number;
+  private readonly anchorNow: Float32Array | null;
 
   constructor(materials: BrickMaterials, options: BrickSetOptions) {
     this.materials = materials; this.options = options; this.seam = options.seamless ? 0 : SEAM;
+    this.anchorNow = options.anchored ? new Float32Array(ANCHOR_SIZE) : null;
+  }
+
+  /** Says what the bricks added from now on are part of: a thing at world (x, z), turned `heading` radians, with a number of its own. */
+  anchor(x: number, z: number, heading: number, own: number) {
+    if (this.anchorNow) { this.anchorNow[0] = x; this.anchorNow[1] = z; this.anchorNow[2] = heading; this.anchorNow[3] = own; }
   }
 
   private batch(shape: number, glass: boolean) {
     const slot = shape + (glass ? SHAPE_COUNT : 0);
-    return this.batches[slot] ??= new Batch(
-      this.group, geometryOf(shape), glass ? (this.options.windows ? this.materials.windowGlass : this.materials.glass) : this.materials.plastic, this.options.capacity, this.options.shadows,
-    );
+    // Plastic boxes get rounded edges, except in a seamless set, where rounding would score a line between tiles that are meant to read as one sheet.
+    const rounded = shape === BOX && !glass && !this.options.seamless;
+    const { materials } = this, moving = this.anchorNow ? materials.moving : null;
+    const material = glass ? (moving ? moving.glass : this.options.windows ? materials.windowGlass : materials.glass)
+      : rounded ? (moving ?? materials).plasticBox : (moving ?? materials).plastic;
+    return this.batches[slot] ??= new Batch(this.group, geometryOf(shape), material, this.options.capacity, this.options.shadows, rounded, this.anchorNow);
   }
 
   begin() { for (const batch of this.batches) batch?.begin(); }
